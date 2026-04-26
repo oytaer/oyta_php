@@ -1,22 +1,6 @@
-//! 数据库迁移系统
+//! 迁移管理器模块
 //!
-//! 提供数据库结构版本控制和迁移管理
-//! 支持：创建迁移、执行迁移、回滚迁移、迁移状态查看
-//!
-//! # 功能特性
-//! - 迁移文件生成
-//! - 迁移执行与回滚
-//! - 迁移状态追踪（持久化到数据库）
-//! - 批量迁移管理
-//! - 多数据库支持（MySQL/PostgreSQL/SQLite）
-//!
-//! # 命令支持
-//! - `oyta make:migration create_users_table` - 创建迁移
-//! - `oyta migrate` - 执行迁移
-//! - `oyta migrate:rollback` - 回滚迁移
-//! - `oyta migrate:status` - 查看迁移状态
-//! - `oyta migrate:reset` - 重置所有迁移
-//! - `oyta migrate:fresh` - 删除所有表并重新迁移
+//! 提供迁移文件的创建、执行、回滚等核心功能
 
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -24,37 +8,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::pool_trait::DatabasePool;
-
-/// 迁移文件信息
-#[derive(Debug, Clone)]
-pub struct Migration {
-    /// 迁移名称
-    pub name: String,
-    /// 文件名（包含时间戳）
-    pub filename: String,
-    /// 文件路径
-    pub path: PathBuf,
-    /// 是否已执行
-    pub executed: bool,
-    /// 执行时间
-    pub executed_at: Option<String>,
-    /// 批次号
-    pub batch: Option<u32>,
-}
-
-/// 迁移记录（数据库存储）
-#[derive(Debug, Clone)]
-pub struct MigrationRecord {
-    /// 记录ID
-    pub id: u64,
-    /// 迁移名称
-    pub migration: String,
-    /// 批次号
-    pub batch: u32,
-    /// 执行时间
-    pub executed_at: String,
-}
+use crate::database::pool_trait::DatabasePool;
+use super::types::{Migration, MigrationRecord};
+use super::helpers::{detect_migration_type, extract_table_name, migration_name_to_class, MigrationType};
 
 /// 迁移管理器
 pub struct MigrationManager {
@@ -167,8 +123,8 @@ impl MigrationManager {
         }
 
         // 解析迁移类型
-        let migration_type = self::detect_migration_type(name);
-        let table_name = self::extract_table_name(name);
+        let migration_type = detect_migration_type(name);
+        let table_name = extract_table_name(name);
 
         // 生成迁移内容
         let content = self.generate_migration_content(name, &migration_type, &table_name);
@@ -183,7 +139,7 @@ impl MigrationManager {
 
     /// 生成迁移文件内容
     fn generate_migration_content(&self, name: &str, migration_type: &MigrationType, table_name: &str) -> String {
-        let class_name = self::migration_name_to_class(name);
+        let class_name = migration_name_to_class(name);
 
         match migration_type {
             MigrationType::Create => {
@@ -718,163 +674,13 @@ class {} extends Migration
 
         Ok(migrations)
     }
-
-    /// 创建数据填充文件
-    ///
-    /// # 参数
-    /// - `name`: 填充名称
-    pub fn create_seeder(&self, name: &str) -> Result<PathBuf> {
-        let seeder_dir = self.project_root.join("database").join("seeders");
-
-        // 确保目录存在
-        std::fs::create_dir_all(&seeder_dir)?;
-
-        let filename = format!("{}.php", name);
-        let file_path = seeder_dir.join(&filename);
-
-        if file_path.exists() {
-            anyhow::bail!("填充文件已存在: {}", file_path.display());
-        }
-
-        let content = self.generate_seeder_content(name);
-
-        std::fs::write(&file_path, content)?;
-
-        tracing::info!("✓ 填充文件创建成功: {}", file_path.display());
-
-        Ok(file_path)
-    }
-
-    /// 生成填充文件内容
-    fn generate_seeder_content(&self, name: &str) -> String {
-        let class_name = self::migration_name_to_class(name);
-
-        format!(r#"<?php
-use oyta\db\Seeder;
-
-/**
- * 数据填充类：{}
- */
-class {} extends Seeder
-{{
-    /**
-     * 执行数据填充
-     * 
-     * @return void
-     */
-    public function run()
-    {{
-        // 在此处编写数据填充逻辑
-        // 示例：
-        // $this->table('users')->insert([
-        //     ['name' => 'Admin', 'email' => 'admin@example.com'],
-        //     ['name' => 'User', 'email' => 'user@example.com'],
-        // ]);
-    }}
-}}
-"#, name, class_name)
-    }
-}
-
-/// 迁移类型
-#[derive(Debug, Clone)]
-enum MigrationType {
-    /// 创建表
-    Create,
-    /// 添加字段
-    Add,
-    /// 删除表
-    Drop,
-    /// 默认
-    Default,
-}
-
-/// 检测迁移类型
-fn detect_migration_type(name: &str) -> MigrationType {
-    let name_lower = name.to_lowercase();
-
-    if name_lower.starts_with("create_") {
-        MigrationType::Create
-    } else if name_lower.starts_with("add_") {
-        MigrationType::Add
-    } else if name_lower.starts_with("drop_") {
-        MigrationType::Drop
-    } else {
-        MigrationType::Default
-    }
-}
-
-/// 提取表名
-fn extract_table_name(name: &str) -> String {
-    let name_lower = name.to_lowercase();
-
-    // 移除前缀
-    let name = name_lower
-        .strip_prefix("create_")
-        .or_else(|| name_lower.strip_prefix("add_"))
-        .or_else(|| name_lower.strip_prefix("drop_"))
-        .unwrap_or(&name_lower);
-
-    // 移除 _table 后缀
-    name.strip_suffix("_table").unwrap_or(name).to_string()
-}
-
-/// 将迁移名称转换为类名
-fn migration_name_to_class(name: &str) -> String {
-    // 移除时间戳前缀（如 20240101120000_）
-    let name = if let Some(pos) = name.find('_') {
-        if pos == 14 && name[..14].chars().all(|c| c.is_numeric()) {
-            &name[pos + 1..]
-        } else {
-            name
-        }
-    } else {
-        name
-    };
-
-    // 转换为驼峰命名
-    let mut result = String::new();
-    let mut capitalize_next = true;
-
-    for c in name.chars() {
-        if c == '_' {
-            capitalize_next = true;
-        } else if capitalize_next {
-            result.push(c.to_ascii_uppercase());
-            capitalize_next = false;
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_detect_migration_type() {
-        assert!(matches!(detect_migration_type("create_users_table"), MigrationType::Create));
-        assert!(matches!(detect_migration_type("add_email_to_users"), MigrationType::Add));
-        assert!(matches!(detect_migration_type("drop_users_table"), MigrationType::Drop));
-    }
-
-    #[test]
-    fn test_extract_table_name() {
-        assert_eq!(extract_table_name("create_users_table"), "users");
-        assert_eq!(extract_table_name("add_email_to_users"), "email_to_users");
-        assert_eq!(extract_table_name("drop_users_table"), "users");
-    }
-
-    #[test]
-    fn test_migration_name_to_class() {
-        assert_eq!(migration_name_to_class("20240101120000_create_users_table"), "CreateUsersTable");
-        assert_eq!(migration_name_to_class("create_users_table"), "CreateUsersTable");
-        assert_eq!(migration_name_to_class("add_email_to_users"), "AddEmailToUsers");
-    }
-
+    /// 测试迁移管理器创建
     #[test]
     fn test_migration_manager_new() {
         let manager = MigrationManager::new(std::path::Path::new("/tmp"));

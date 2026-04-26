@@ -56,3 +56,5 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# HTML 实体编码/解码
+html-escape = "0.2"

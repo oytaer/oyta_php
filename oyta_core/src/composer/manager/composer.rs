@@ -1,236 +1,24 @@
-//! Composer 管理器
+//! Composer 管理器主体模块
 //!
-//! 统一管理 Composer 相关操作
-//! 提供 PHP Composer 兼容的依赖管理功能
-//!
-//! # 功能特性
-//! - 依赖安装 (install)
-//! - 依赖更新 (update)
-//! - 添加依赖 (require)
-//! - 移除依赖 (remove)
-//! - 自动加载生成 (dump-autoload)
+//! 提供依赖安装、更新、添加、移除等核心功能
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::autoload;
-use super::downloader;
-use super::lock;
-use super::parser;
-use super::resolver;
+use super::types::{AutoloadConfig, ComposerJson, ComposerLock, LockedPackage, PackageSource};
+use crate::composer::{autoload, downloader, lock, parser, resolver};
 
 /// Composer 管理器
 ///
 /// 统一管理 Composer 相关操作
 pub struct Composer {
     /// 项目根目录
-    project_path: String,
+    pub project_path: String,
     /// composer.json 配置
-    config: Option<ComposerJson>,
+    pub config: Option<ComposerJson>,
     /// composer.lock 内容
-    lock: Option<ComposerLock>,
-}
-
-/// composer.json 配置结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComposerJson {
-    /// 包名称
-    pub name: String,
-    /// 包描述
-    pub description: String,
-    /// 包类型
-    #[serde(default)]
-    pub r#type: String,
-    /// 许可证
-    #[serde(default)]
-    pub license: Vec<String>,
-    /// 作者列表
-    #[serde(default)]
-    pub authors: Vec<Author>,
-    /// 需要的依赖
-    #[serde(default)]
-    pub require: HashMap<String, String>,
-    /// 开发依赖
-    #[serde(default)]
-    pub require_dev: HashMap<String, String>,
-    /// 自动加载配置
-    #[serde(default)]
-    pub autoload: AutoloadConfig,
-    /// 开发环境自动加载配置
-    #[serde(default)]
-    pub autoload_dev: AutoloadConfig,
-    /// 仓库配置
-    #[serde(default)]
-    pub repositories: Vec<Repository>,
-    /// 最小稳定性
-    #[serde(default = "default_stability")]
-    pub minimum_stability: String,
-    /// 优先稳定版本
-    #[serde(default = "default_true")]
-    pub prefer_stable: bool,
-    /// 脚本配置
-    #[serde(default)]
-    pub scripts: HashMap<String, Vec<String>>,
-    /// 额外配置
-    #[serde(default)]
-    pub extra: serde_json::Value,
-    /// 配置选项
-    #[serde(default)]
-    pub config: ComposerConfig,
-}
-
-/// 为 ComposerJson 实现自定义 Default
-/// 确保默认值符合预期
-impl Default for ComposerJson {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            description: String::new(),
-            r#type: String::new(),
-            license: Vec::new(),
-            authors: Vec::new(),
-            require: HashMap::new(),
-            require_dev: HashMap::new(),
-            autoload: AutoloadConfig::default(),
-            autoload_dev: AutoloadConfig::default(),
-            repositories: Vec::new(),
-            minimum_stability: default_stability(),
-            prefer_stable: default_true(),
-            scripts: HashMap::new(),
-            extra: serde_json::Value::Null,
-            config: ComposerConfig::default(),
-        }
-    }
-}
-
-/// 默认稳定性
-fn default_stability() -> String {
-    "stable".to_string()
-}
-
-/// 默认 true
-fn default_true() -> bool {
-    true
-}
-
-/// 作者信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Author {
-    /// 作者名称
-    pub name: String,
-    /// 邮箱地址
-    pub email: String,
-    /// 主页
-    #[serde(default)]
-    pub homepage: Option<String>,
-    /// 角色
-    #[serde(default)]
-    pub role: Option<String>,
-}
-
-/// 自动加载配置
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AutoloadConfig {
-    /// PSR-4 自动加载
-    #[serde(default, rename = "psr-4")]
-    pub psr_4: HashMap<String, Vec<String>>,
-    /// PSR-0 自动加载
-    #[serde(default, rename = "psr-0")]
-    pub psr_0: HashMap<String, Vec<String>>,
-    /// 类映射
-    #[serde(default)]
-    pub classmap: Vec<String>,
-    /// 文件映射
-    #[serde(default)]
-    pub files: Vec<String>,
-}
-
-/// 仓库配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Repository {
-    /// 仓库类型
-    pub r#type: String,
-    /// 仓库 URL
-    pub url: String,
-    /// 仓库名称
-    #[serde(default)]
-    pub name: Option<String>,
-}
-
-/// Composer 配置选项
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ComposerConfig {
-    /// 平台配置（覆盖 PHP 版本等）
-    #[serde(default)]
-    pub platform: HashMap<String, String>,
-    /// 优化自动加载
-    #[serde(default)]
-    pub optimize_autoloader: bool,
-    /// 类映射权威模式
-    #[serde(default)]
-    pub classmap_authoritative: bool,
-    /// APCu 缓存
-    #[serde(default)]
-    pub apcu_autoloader: bool,
-}
-
-/// composer.lock 结构
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ComposerLock {
-    /// 锁文件版本
-    #[serde(default)]
-    pub version: i32,
-    /// 内容哈希
-    #[serde(default)]
-    pub content_hash: String,
-    /// 已安装的包
-    #[serde(default)]
-    pub packages: Vec<LockedPackage>,
-    /// 开发环境包
-    #[serde(default)]
-    pub packages_dev: Vec<LockedPackage>,
-    /// 平台要求
-    #[serde(default)]
-    pub platform: HashMap<String, String>,
-    /// 平台开发要求
-    #[serde(default)]
-    pub platform_dev: HashMap<String, String>,
-}
-
-/// 已锁定的包信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LockedPackage {
-    /// 包名称
-    pub name: String,
-    /// 版本号
-    pub version: String,
-    /// 源信息
-    pub source: PackageSource,
-    /// 安装路径
-    #[serde(default)]
-    pub install_path: String,
-    /// 自动加载配置
-    #[serde(default)]
-    pub autoload: AutoloadConfig,
-    /// 许可证
-    #[serde(default)]
-    pub license: Vec<String>,
-    /// 依赖
-    #[serde(default)]
-    pub require: HashMap<String, String>,
-}
-
-/// 包源信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageSource {
-    /// 源类型（git/dist）
-    pub r#type: String,
-    /// 源 URL
-    pub url: String,
-    /// 引用（commit hash 或 dist checksum）
-    pub reference: String,
+    pub lock: Option<ComposerLock>,
 }
 
 impl Composer {
@@ -297,8 +85,7 @@ impl Composer {
     pub async fn install(&mut self) -> Result<()> {
         self.load().await?;
 
-        let config = self.config.as_ref()
-            .context("composer.json 不存在")?;
+        let config = self.config.as_ref().context("composer.json 不存在")?;
 
         tracing::info!("开始安装依赖...");
 
@@ -311,10 +98,7 @@ impl Composer {
         }
 
         // 将 ResolvedPackage 转换为 LockedPackage
-        let locked_packages: Vec<LockedPackage> = dependencies
-            .iter()
-            .map(|dep| LockedPackage::from(dep))
-            .collect();
+        let locked_packages: Vec<LockedPackage> = dependencies.iter().map(|dep| LockedPackage::from(dep)).collect();
 
         // 生成自动加载
         autoload::generate(&self.project_path, &locked_packages).await?;
@@ -340,13 +124,13 @@ impl Composer {
     pub async fn update(&mut self, packages: &[String]) -> Result<()> {
         self.load().await?;
 
-        let config = self.config.as_ref()
-            .context("composer.json 不存在")?;
+        let config = self.config.as_ref().context("composer.json 不存在")?;
 
         tracing::info!("开始更新依赖: {:?}", packages);
 
         // 获取当前锁定的包版本
-        let current_locked: HashMap<String, String> = self.lock
+        let current_locked: HashMap<String, String> = self
+            .lock
             .as_ref()
             .map(|l| l.packages.iter().map(|p| (p.name.clone(), p.version.clone())).collect())
             .unwrap_or_default();
@@ -359,14 +143,11 @@ impl Composer {
             let update_set: HashSet<String> = packages.iter().cloned().collect();
 
             // 过滤出需要更新的包
-            dependencies.retain(|dep| {
-                update_set.contains(&dep.name) || !current_locked.contains_key(&dep.name)
-            });
+            dependencies.retain(|dep| update_set.contains(&dep.name) || !current_locked.contains_key(&dep.name));
 
             // 保留不需要更新的包的当前版本
             for (name, version) in &current_locked {
                 if !update_set.contains(name) && !dependencies.iter().any(|d| &d.name == name) {
-                    // 创建一个保持当前版本的包信息
                     tracing::debug!("保持包 {} 版本 {}", name, version);
                 }
             }
@@ -406,10 +187,7 @@ impl Composer {
         }
 
         // 将 ResolvedPackage 转换为 LockedPackage
-        let locked_packages: Vec<LockedPackage> = dependencies
-            .iter()
-            .map(|dep| LockedPackage::from(dep))
-            .collect();
+        let locked_packages: Vec<LockedPackage> = dependencies.iter().map(|dep| LockedPackage::from(dep)).collect();
 
         // 生成自动加载
         autoload::generate(&self.project_path, &locked_packages).await?;
@@ -471,10 +249,7 @@ impl Composer {
         }
 
         // 合并到现有锁定包列表
-        let mut all_packages = self.lock
-            .as_ref()
-            .map(|l| l.packages.clone())
-            .unwrap_or_default();
+        let mut all_packages = self.lock.as_ref().map(|l| l.packages.clone()).unwrap_or_default();
 
         // 添加新包（避免重复）
         let existing_names: HashSet<String> = all_packages.iter().map(|p| p.name.clone()).collect();
@@ -496,7 +271,6 @@ impl Composer {
         let all_resolved: Vec<resolver::ResolvedPackage> = all_packages
             .iter()
             .filter_map(|p| {
-                // 从 LockedPackage 转换回 ResolvedPackage（简化版本）
                 Some(resolver::ResolvedPackage {
                     name: p.name.clone(),
                     version: p.version.clone(),
@@ -530,8 +304,7 @@ impl Composer {
 
         // 检查包是否存在并移除
         {
-            let config = self.config.as_mut()
-                .context("composer.json 不存在")?;
+            let config = self.config.as_mut().context("composer.json 不存在")?;
 
             tracing::info!("移除依赖: {}", package);
 
@@ -544,11 +317,7 @@ impl Composer {
             if let Some(lock) = &self.lock {
                 for locked_pkg in &lock.packages {
                     if locked_pkg.require.contains_key(package) {
-                        tracing::warn!(
-                            "警告: 包 {} 被包 {} 依赖，移除可能导致问题",
-                            package,
-                            locked_pkg.name
-                        );
+                        tracing::warn!("警告: 包 {} 被包 {} 依赖，移除可能导致问题", package, locked_pkg.name);
                     }
                 }
             }
@@ -565,10 +334,7 @@ impl Composer {
 
         // 递归移除不再被需要的依赖
         if let Some(lock) = &self.lock {
-            let remaining_requires: HashSet<String> = self.config
-                .as_ref()
-                .map(|c| c.require.keys().cloned().collect())
-                .unwrap_or_default();
+            let remaining_requires: HashSet<String> = self.config.as_ref().map(|c| c.require.keys().cloned().collect()).unwrap_or_default();
 
             // 找出所有被其他包依赖的包
             let mut required_packages: HashSet<String> = remaining_requires.clone();
@@ -631,8 +397,7 @@ impl Composer {
 
     /// 写入 composer.json 文件
     async fn write_composer_json(&self) -> Result<()> {
-        let config = self.config.as_ref()
-            .context("配置未加载")?;
+        let config = self.config.as_ref().context("配置未加载")?;
 
         let json_path = Path::new(&self.project_path).join("composer.json");
         let content = serde_json::to_string_pretty(config)?;
@@ -646,9 +411,7 @@ impl Composer {
 
     /// 删除包目录
     async fn remove_package_dir(&self, package_name: &str) -> Result<()> {
-        let package_dir = Path::new(&self.project_path)
-            .join("vendor")
-            .join(package_name);
+        let package_dir = Path::new(&self.project_path).join("vendor").join(package_name);
 
         if package_dir.exists() {
             tokio::fs::remove_dir_all(&package_dir).await?;
@@ -702,8 +465,7 @@ impl Composer {
     /// # 参数
     /// - `script_name`: 脚本名称（如 "post-install-cmd"）
     pub async fn run_script(&self, script_name: &str) -> Result<()> {
-        let config = self.config.as_ref()
-            .context("配置未加载")?;
+        let config = self.config.as_ref().context("配置未加载")?;
 
         if let Some(scripts) = config.scripts.get(script_name) {
             tracing::info!("执行脚本: {}", script_name);
@@ -724,8 +486,7 @@ impl Composer {
     pub fn validate(&self) -> Result<Vec<String>> {
         let mut warnings = Vec::new();
 
-        let config = self.config.as_ref()
-            .context("composer.json 未加载")?;
+        let config = self.config.as_ref().context("composer.json 未加载")?;
 
         // 检查必需字段
         if config.name.is_empty() {
@@ -744,7 +505,8 @@ impl Composer {
         if config.autoload.psr_4.is_empty()
             && config.autoload.psr_0.is_empty()
             && config.autoload.classmap.is_empty()
-            && config.autoload.files.is_empty() {
+            && config.autoload.files.is_empty()
+        {
             warnings.push("未配置自动加载".to_string());
         }
 
@@ -771,6 +533,7 @@ impl From<&resolver::ResolvedPackage> for LockedPackage {
 mod tests {
     use super::*;
 
+    /// 测试 Composer 创建
     #[test]
     fn test_composer_new() {
         let composer = Composer::new("/tmp/project");
@@ -778,6 +541,7 @@ mod tests {
         assert!(composer.lock.is_none());
     }
 
+    /// 测试 ComposerJson 默认值
     #[test]
     fn test_composer_json_default() {
         let json = ComposerJson::default();
@@ -787,6 +551,7 @@ mod tests {
         assert!(json.prefer_stable);
     }
 
+    /// 测试从 ResolvedPackage 转换
     #[test]
     fn test_locked_package_from_resolved() {
         let resolved = resolver::ResolvedPackage {
