@@ -1,0 +1,58 @@
+[package]
+name = "oyta_core"
+version = "0.1.0"
+edition = "2024"
+publish = ["tuna"]
+
+[[bin]]
+name = "oyta"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+dotenvy = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+php-rs-parser = { workspace = true }
+php-ast = { workspace = true }
+figment = { workspace = true }
+once_cell = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+bytes = { workspace = true }
+mime = { workspace = true }
+matchit = { workspace = true }
+moka = { workspace = true }
+notify = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+pbkdf2 = { workspace = true }
+aes-gcm = { workspace = true }
+base64 = { workspace = true }
+regex = { workspace = true }
+md5 = { workspace = true }
+urlencoding = { workspace = true }
+bincode = { workspace = true }
+tera = { workspace = true }
+rand = { workspace = true }
+chrono-tz = { workspace = true }
+byteorder = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+deadpool-redis = { workspace = true }
+uuid = { workspace = true }
+async-trait = "0.1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+tar = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

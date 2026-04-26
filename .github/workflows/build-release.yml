@@ -1,0 +1,153 @@
+# ============================================================
+# OYTAPHP 跨平台编译工作流
+# ============================================================
+# 
+# 在 GitHub Actions 中编译所有平台的二进制文件
+# 支持：Linux x64/ARM64、macOS x64/ARM64、Windows x64
+#
+
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: oyta
+            asset_name: oyta-linux-x64
+            
+          # Linux ARM64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: oyta
+            asset_name: oyta-linux-arm64
+            
+          # macOS x64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact_name: oyta
+            asset_name: oyta-macos-x64
+            
+          # macOS ARM64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact_name: oyta
+            asset_name: oyta-macos-arm64
+            
+          # Windows x64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact_name: oyta.exe
+            asset_name: oyta-windows-x64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p .cargo
+          cat >> .cargo/config.toml << EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archive
+        run: |
+          cd artifacts
+          
+          # Linux x64
+          tar -czvf oyta-linux-x64.tar.gz oyta-linux-x64/oyta
+          
+          # Linux ARM64
+          tar -czvf oyta-linux-arm64.tar.gz oyta-linux-arm64/oyta
+          
+          # macOS x64
+          tar -czvf oyta-macos-x64.tar.gz oyta-macos-x64/oyta
+          
+          # macOS ARM64
+          tar -czvf oyta-macos-arm64.tar.gz oyta-macos-arm64/oyta
+          
+          # Windows x64
+          zip oyta-windows-x64.zip oyta-windows-x64.exe/oyta.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/oyta-linux-x64.tar.gz
+            artifacts/oyta-linux-arm64.tar.gz
+            artifacts/oyta-macos-x64.tar.gz
+            artifacts/oyta-macos-arm64.tar.gz
+            artifacts/oyta-windows-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
