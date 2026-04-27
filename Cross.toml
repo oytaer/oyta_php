@@ -3,11 +3,22 @@ pre-build = [
     "apt-get update && apt-get install -y pkg-config libssl-dev"
 ]
 
-[target.aarch64-unknown-linux-gnu]
-image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
-
+# Linux x86_64 (静态链接 musl)
 [target.x86_64-unknown-linux-musl]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:0.2.5"
 
+# Linux aarch64 (ARM64)
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
+
+# Linux aarch64 (静态链接 musl)
 [target.aarch64-unknown-linux-musl]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:0.2.5"
+
+# Windows x86_64 (使用 GNU 工具链)
+[target.x86_64-pc-windows-gnu]
+image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:0.2.5"
+
+# Windows x86_64 (使用 MSVC，需要额外配置)
+# [target.x86_64-pc-windows-msvc]
+# 需要安装 Windows SDK，较复杂，暂使用 GNU 工具链

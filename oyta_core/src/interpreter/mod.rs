@@ -11,7 +11,18 @@
 //! - Attribute 注解
 //! - 构造器属性提升
 //! - 联合类型
+//!
+//! # PHP 8.1+ 特性支持
+//! - Generator / yield（PHP 5.5+）
+//! - Fiber 协程
+//! - 枚举类型
+//! - 只读属性
 
+// 引入子模块
 pub mod engine;
+pub mod generator;
+pub mod fiber;
+pub mod enum_type;
+pub mod readonly;
 pub mod php8_features;
 pub mod value;

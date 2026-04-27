@@ -1,0 +1,52 @@
+{
+    "name": "oyta/framework",
+    "description": "OYTAPHP - Rust驱动的PHP运行时框架，零PHP运行时依赖，单二进制文件运行",
+    "type": "project",
+    "keywords": [
+        "php",
+        "framework",
+        "rust",
+        "oyta-php",
+        "oyta",
+        "high-performance",
+        "php-runtime"
+    ],
+    "homepage": "https://github.com/oyta-php/oyta",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "OYTAPHP Team",
+            "email": "team@oyta.dev"
+        }
+    ],
+    "require": {
+        "php": ">=8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "app\\": "app/"
+        },
+        "files": [
+            "app/common.php"
+        ]
+    },
+    "config": {
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "bin": [
+        "oyta",
+        "oyta-cli"
+    ],
+    "scripts": {
+        "post-create-project-cmd": [
+            "@php -r \"file_exists('.env') || copy('.example.env', '.env');\""
+        ]
+    },
+    "support": {
+        "issues": "https://github.com/oyta-php/oyta/issues",
+        "source": "https://github.com/oyta-php/oyta",
+        "docs": "https://oyta.dev/docs"
+    }
+}

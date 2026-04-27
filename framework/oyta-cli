@@ -1,0 +1,54 @@
+#!/bin/bash
+#
+# OYTAPHP CLI 跨平台启动脚本
+# 自动检测操作系统和架构，运行对应的 CLI 二进制文件
+#
+# 使用方法：
+#   ./oyta-cli new myapp    # 创建新项目
+#   ./oyta-cli --help       # 查看帮助
+#
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检测操作系统
+OS="$(uname -s)"
+case "$OS" in
+    Linux*)
+        # 检测架构
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+            x86_64|amd64)
+                BINARY="$SCRIPT_DIR/vendor/oyta_php/bin/linux-x86_64/oyta-cli"
+                ;;
+            aarch64|arm64)
+                BINARY="$SCRIPT_DIR/vendor/oyta_php/bin/linux-aarch64/oyta-cli"
+                ;;
+            *)
+                echo "错误：不支持的架构：$ARCH"
+                exit 1
+                ;;
+        esac
+        ;;
+    Darwin*)
+        # macOS 暂不支持
+        echo "错误：macOS 尚未支持"
+        exit 1
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        # Windows Git Bash 环境
+        BINARY="$SCRIPT_DIR/vendor/oyta_php/bin/windows-x86_64/oyta-cli.exe"
+        ;;
+    *)
+        echo "错误：不支持的操作系统：$OS"
+        exit 1
+        ;;
+esac
+
+# 检查二进制文件是否存在
+if [ ! -f "$BINARY" ]; then
+    echo "错误：找不到对应的二进制文件：$BINARY"
+    exit 1
+fi
+
+# 执行二进制文件，传递所有参数
+exec "$BINARY" "$@"

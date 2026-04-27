@@ -155,6 +155,10 @@ fn format_value_recursive(value: &Value, indent: usize) -> String {
         Value::Callable(_) => format!("{}Closure", indent_str),
         // Resource 类型显示为资源描述
         Value::Resource(r) => format!("{}Resource({})", indent_str, r),
+        // Generator 类型显示为生成器描述
+        Value::Generator(_) => format!("{}Generator", indent_str),
+        // Fiber 类型显示为协程描述
+        Value::Fiber(_) => format!("{}Fiber", indent_str),
     }
 }
 
@@ -210,6 +214,10 @@ fn format_value_debug(value: &Value, indent: usize) -> String {
         Value::Callable(_) => format!("{}object(Closure)#1 (0) {{\n{}}}\n", indent_str, indent_str),
         // Resource 类型显示为资源描述
         Value::Resource(r) => format!("{}resource({})\n", indent_str, r),
+        // Generator 类型显示为生成器描述
+        Value::Generator(_) => format!("{}object(Generator)#1 (0) {{\n{}}}\n", indent_str, indent_str),
+        // Fiber 类型显示为协程描述
+        Value::Fiber(_) => format!("{}object(Fiber)#1 (0) {{\n{}}}\n", indent_str, indent_str),
     }
 }
 
@@ -252,6 +260,10 @@ fn format_value_php(value: &Value, indent: usize) -> String {
         Value::Callable(_) => "/* closure */".to_string(),
         // Resource 类型显示为资源描述
         Value::Resource(r) => format!("/* resource: {} */", r),
+        // Generator 类型显示为生成器描述
+        Value::Generator(_) => "/* generator */".to_string(),
+        // Fiber 类型显示为协程描述
+        Value::Fiber(_) => "/* fiber */".to_string(),
     }
 }
 

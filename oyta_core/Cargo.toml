@@ -58,3 +58,12 @@ tar = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # HTML 实体编码/解码
 html-escape = "0.2"
+# 序列化格式支持
+rmp-serde = { workspace = true }
+serde_cbor = { workspace = true }
+postcard = { workspace = true }
+# SIMD 加速相关
+blake3 = "1.5"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+crc32fast = "1.4"
+num_cpus = "1.16"

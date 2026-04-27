@@ -1,14 +1,19 @@
 //! FastCGI 服务器
 //!
 //! 监听 Unix Socket 或 TCP 端口，接受 Nginx 的 FastCGI 请求
+//!
+//! 注意：FastCGI 模块仅在 Unix 系统上可用
 
 use anyhow::Result;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 
 use crate::http::state::AppState;
 use crate::fastcgi::handler::FastCGIHandler;
@@ -37,7 +42,8 @@ impl FastCGIServer {
         FastCGIServer { config, app_state }
     }
 
-    /// 启动服务器
+    /// 启动服务器（Unix 系统）
+    #[cfg(unix)]
     pub async fn start(&self) -> Result<()> {
         // 删除已存在的 socket 文件
         if self.config.socket_path.exists() {
@@ -86,86 +92,66 @@ impl FastCGIServer {
             }
         }
     }
+
+    /// 启动服务器（Windows 不支持）
+    #[cfg(not(unix))]
+    pub async fn start(&self) -> Result<()> {
+        anyhow::bail!("FastCGI 模块在 Windows 上不可用，请使用 HTTP 模式运行");
+    }
 }
 
-/// 处理单个连接
+/// 处理单个连接（Unix 系统）
+#[cfg(unix)]
 async fn handle_connection(mut stream: UnixStream, handler: FastCGIHandler) -> Result<()> {
     // 读取请求数据
     let mut buffer = Vec::new();
     let mut read_buffer = [0u8; 8192];
     
-    // 设置读取超时
-    let read_future = async {
-        loop {
-            match stream.read(&mut read_buffer).await {
-                Ok(0) => break, // 连接关闭
-                Ok(n) => {
-                    buffer.extend_from_slice(&read_buffer[..n]);
-                    // 检查是否收到完整的请求
-                    if is_request_complete(&buffer) {
+    // 读取所有数据
+    loop {
+        match stream.read(&mut read_buffer).await {
+            Ok(0) => break,
+            Ok(n) => {
+                buffer.extend_from_slice(&read_buffer[..n]);
+                // 检查是否读取完整请求
+                if buffer.len() > 8 {
+                    // 检查 FastCGI 记录边界
+                    let content_length = u16::from_be_bytes([buffer[4], buffer[5]]) as usize;
+                    let padding_length = buffer[6] as usize;
+                    let record_length = 8 + content_length + padding_length;
+                    if buffer.len() >= record_length {
                         break;
                     }
                 }
-                Err(e) => {
-                    tracing::error!("读取 FastCGI 数据失败: {}", e);
-                    return Err(e.into());
-                }
+            }
+            Err(e) => {
+                tracing::error!("读取 FastCGI 请求失败：{}", e);
+                return Err(anyhow::anyhow!("读取失败：{}", e));
             }
         }
-        Ok::<_, anyhow::Error>(())
-    };
-
-    // 使用超时包装
-    if tokio::time::timeout(Duration::from_secs(30), read_future).await.is_err() {
-        tracing::warn!("FastCGI 请求超时");
-        return Ok(());
     }
 
-    // 处理请求并获取响应
-    let response = {
-        let cursor = std::io::Cursor::new(&buffer);
-        let mut reader = cursor;
-        let mut writer = Vec::new();
 
-        // 使用同步处理器处理请求
-        handler.handle_connection(&mut reader, &mut writer)?;
-        writer
-    };
 
-    // 发送响应
-    if !response.is_empty() {
-        stream.write_all(&response).await?;
-        stream.flush().await?;
+    // 使用同步方式处理
+    use std::io::Cursor;
+    let input = Cursor::new(&buffer);
+    let mut output = Vec::new();
+    
+    match handler.handle_connection(input, &mut output) {
+        Ok(()) => {
+            // 发送响应
+            if let Err(e) = stream.write_all(&output).await {
+                tracing::error!("发送 FastCGI 响应失败：{}", e);
+            }
+            if let Err(e) = stream.flush().await {
+                tracing::error!("刷新 FastCGI 响应失败：{}", e);
+            }
+        }
+        Err(e) => {
+            tracing::error!("处理 FastCGI 请求失败：{}", e);
+        }
     }
 
     Ok(())
-}
-
-/// 检查请求是否完整
-fn is_request_complete(buffer: &[u8]) -> bool {
-    // 简单检查：查找空的 Stdin 记录
-    let mut pos = 0;
-    let mut found_params_end = false;
-
-    while pos + 8 <= buffer.len() {
-        // 读取记录头
-        let content_length = u16::from_be_bytes([buffer[pos + 4], buffer[pos + 5]]) as usize;
-        let padding_length = buffer[pos + 6] as usize;
-        let record_type = buffer[pos + 1];
-
-        // 检查是否是空的 Stdin 记录
-        if record_type == 5 && content_length == 0 {
-            return true;
-        }
-
-        // 检查是否是空的 Params 记录（表示参数结束）
-        if record_type == 4 && content_length == 0 {
-            found_params_end = true;
-        }
-
-        // 移动到下一个记录
-        pos += 8 + content_length + padding_length;
-    }
-
-    false
 }
