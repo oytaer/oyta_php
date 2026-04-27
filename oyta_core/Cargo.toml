@@ -67,3 +67,17 @@ blake3 = "1.5"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 crc32fast = "1.4"
 num_cpus = "1.16"
+# XML 处理
+quick-xml = "0.31"
+# 字符编码
+encoding_rs = "0.8"
+# 图像处理
+png = "0.17"
+jpeg-decoder = "0.3"
+jpeg-encoder = "0.6"
+gif = "0.13"
+# 压缩
+bzip2 = "0.4"
+# SHA1 (用于 Phar 签名)
+sha1 = "0.10"
+bitflags = "2.4"

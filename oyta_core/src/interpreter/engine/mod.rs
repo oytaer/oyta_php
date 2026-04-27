@@ -7,6 +7,8 @@
 //! - assign: 赋值操作（变量/属性/数组/静态属性赋值）
 //! - method_call: 字符串和数组的链式方法调用
 //! - builtins: 90+ 内置 PHP 函数实现
+//! - builtins_ext: 扩展内置函数（DateTime、mbstring、GD、XML、Phar、eval等）
+//! - builtin_classes: 内置类注册机制（DateTime、DOMDocument、GdImage、Phar等）
 //! - binary_op: 二元运算符求值
 //! - helpers: 通用辅助函数
 
@@ -14,6 +16,7 @@ pub mod assign;
 pub mod binary_op;
 pub mod builtins;
 pub mod builtins_ext;
+pub mod builtin_classes;
 pub mod expr;
 pub mod helpers;
 pub mod interpreter;
@@ -21,3 +24,4 @@ pub mod method_call;
 pub mod stmt;
 
 pub use interpreter::Interpreter;
+pub use builtin_classes::{BuiltinClassRegistry, BuiltinClassDefinition, get_builtin_class_registry};

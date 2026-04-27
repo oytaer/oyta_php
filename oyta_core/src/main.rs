@@ -18,22 +18,30 @@ mod config;
 mod container;
 mod coroutine;
 mod database;
+mod datetime;
 mod debug;
 mod embedded;
 mod env_loader;
+mod error;
+mod eval;
 mod event;
 mod fastcgi;
+mod gd;
 mod helpers;
 mod http;
 mod http3;
 mod i18n;
 mod interpreter;
 mod logging;
+mod mbstring;
 mod middleware;
 mod microservice;
 mod monitor;
+mod output;
 mod parser;
+mod phar;
 mod project;
+mod reflection;
 mod router;
 mod sandbox;
 mod search;
@@ -46,6 +54,7 @@ mod template;
 mod timer;
 mod validator;
 mod watcher;
+mod xml;
 
 /// 程序入口函数
 /// 使用 tokio 异步运行时，因为后续的 HTTP 服务、热重载等功能都需要异步支持

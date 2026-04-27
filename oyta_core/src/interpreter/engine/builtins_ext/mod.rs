@@ -1,6 +1,7 @@
 //! 内置 PHP 函数扩展模块
 //!
 //! 包含类型检测、类型转换、数学、调试、哈希、时间、类/对象等函数
+//! 以及 DateTime、mbstring、GD、XML、Phar、eval 等扩展函数
 //! 这些函数通过 register_ext_builtins() 注册到主内置函数映射表中
 //!
 //! # 模块结构
@@ -14,6 +15,12 @@
 //! - `class_object`: 类/对象函数
 //! - `validation`: 验证函数
 //! - `helpers`: OYTAPHP 助手函数
+//! - `datetime`: DateTime 日期时间函数
+//! - `mbstring`: 多字节字符串函数
+//! - `gd`: GD 图像处理函数
+//! - `xml`: XML 处理函数
+//! - `phar`: Phar 归档函数
+//! - `eval`: 动态执行函数
 
 pub mod class_object;
 pub mod debug;
@@ -25,6 +32,14 @@ pub mod time;
 pub mod type_cast;
 pub mod type_check;
 pub mod validation;
+
+// 新增扩展模块
+pub mod datetime;
+pub mod mbstring;
+pub mod gd;
+pub mod xml;
+pub mod phar;
+pub mod eval;
 
 use std::collections::HashMap;
 
@@ -144,6 +159,24 @@ pub fn register_ext_builtins(map: &mut HashMap<String, BuiltinFunction>) {
 
     // 注册 OYTAPHP 助手函数
     register_oyta_helpers(map);
+    
+    // 注册 DateTime 函数
+    datetime::register_datetime_functions(map);
+    
+    // 注册 mbstring 函数
+    mbstring::register_mbstring_functions(map);
+    
+    // 注册 GD 函数
+    gd::register_gd_functions(map);
+    
+    // 注册 XML 函数
+    xml::register_xml_functions(map);
+    
+    // 注册 Phar 函数
+    phar::register_phar_functions(map);
+    
+    // 注册 eval 函数
+    eval::register_eval_functions(map);
 }
 
 /// isset — 检测变量是否已设置并且非 null
