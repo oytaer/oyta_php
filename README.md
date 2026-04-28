@@ -398,14 +398,37 @@ Phar 归档处理函数
 
 ## 多平台支持
 
-| 平台 | 架构 |
-|------|------|
-| Linux | x86_64, ARM64 |
-| macOS | Apple Silicon, Intel |
-| Windows | x86_64 |
+| 平台 | 架构 | 安装脚本 |
+|------|------|----------|
+| Linux | x86_64, aarch64 | `install.sh` |
+| Windows | x86_64 | `install.ps1` |
+
+### 安装方式
+
+**Linux/macOS:**
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+.\install.ps1
+```
+
+安装完成后，`oyta` 二进制文件将自动添加到系统 PATH，可直接使用。
 
 ---
 
 ## 许可证
 
 MIT License
+
+---
+
+## 相关资源
+
+- [Rust 编程语言](https://www.rust-lang.org/)
+- [PHP 8.0 文档](https://www.php.net/manual/zh/)
+- [PHP 8.1 文档](https://www.php.net/manual/zh/)
