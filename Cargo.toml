@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 
-members = ["oyta_cli","oyta_core"]
+members = ["oyta_core"]
 
 [workspace.dependencies]
 php-rs-parser = "0.9.2"

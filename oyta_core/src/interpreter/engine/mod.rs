@@ -9,6 +9,7 @@
 //! - builtins: 90+ 内置 PHP 函数实现
 //! - builtins_ext: 扩展内置函数（DateTime、mbstring、GD、XML、Phar、eval等）
 //! - builtin_classes: 内置类注册机制（DateTime、DOMDocument、GdImage、Phar等）
+//! - builtin_facades: 门面类注册机制（Cache、Db、Session、Config、Log等）
 //! - binary_op: 二元运算符求值
 //! - helpers: 通用辅助函数
 
@@ -17,6 +18,7 @@ pub mod binary_op;
 pub mod builtins;
 pub mod builtins_ext;
 pub mod builtin_classes;
+pub mod builtin_facades;
 pub mod expr;
 pub mod helpers;
 pub mod interpreter;
@@ -25,3 +27,4 @@ pub mod stmt;
 
 pub use interpreter::Interpreter;
 pub use builtin_classes::{BuiltinClassRegistry, BuiltinClassDefinition, get_builtin_class_registry};
+pub use builtin_facades::{FacadeClassRegistry, FacadeClassDefinition, get_facade_class_registry};

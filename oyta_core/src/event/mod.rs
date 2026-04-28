@@ -5,3 +5,6 @@
 
 pub mod dispatcher;
 pub mod types;
+pub mod facade;
+
+pub use facade::Event;

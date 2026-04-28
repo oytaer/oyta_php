@@ -5,3 +5,6 @@
 
 pub mod i18n;
 pub mod lang;
+pub mod facade;
+
+pub use facade::Lang;

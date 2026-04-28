@@ -24,3 +24,6 @@ pub mod query_builder;
 pub mod read_write_split;
 pub mod relations;
 pub mod sqlite_pool;
+
+// 导出 Db 门面
+pub use facade::Db;

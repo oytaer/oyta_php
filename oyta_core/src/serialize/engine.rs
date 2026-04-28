@@ -510,7 +510,7 @@ impl Default for SerializeEngine {
 }
 
 /// 可序列化的中间格式
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SerializableValue {
     /// null 值
     Null,

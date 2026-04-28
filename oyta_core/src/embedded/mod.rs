@@ -15,3 +15,6 @@ pub mod queue_redis;
 pub mod timer;
 pub mod upload;
 pub mod websocket;
+pub mod queue_facade;
+
+pub use queue_facade::Queue;

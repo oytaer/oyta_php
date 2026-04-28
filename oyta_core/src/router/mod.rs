@@ -6,6 +6,14 @@
 
 pub mod annotation;
 pub mod cache;
+pub mod facade;
 pub mod registry;
 pub mod route_parser;
 pub mod types;
+
+// 导出类型定义
+pub use types::{HttpMethod, Route, RouteGroup, RouteHandler, RouteMatch};
+// 导出注册表
+pub use registry::RouteRegistry;
+// 导出门面（静态方法访问器）
+pub use facade::RouteFacade;

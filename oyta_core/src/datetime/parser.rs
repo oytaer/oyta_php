@@ -785,7 +785,8 @@ mod tests {
     #[test]
     fn test_parse_from_format() {
         let parser = DateTimeParser::new();
-        let result = parser.parse_from_format("Y-m-d H:i:s", "2024-01-15 10:30:00", None);
+        // 使用正确的格式字符串（带 % 前缀）
+        let result = parser.parse_from_format("%Y-%m-%d %H:%i:%s", "2024-01-15 10:30:00", None);
         assert!(result.is_some());
         
         let dt = result.unwrap();

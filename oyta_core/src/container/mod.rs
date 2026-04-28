@@ -7,3 +7,6 @@
 pub mod container;
 pub mod facade;
 pub mod service_provider;
+
+// 导出 Container 门面
+pub use facade::Container;

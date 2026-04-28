@@ -8,3 +8,10 @@ pub mod csrf;
 pub mod hash;
 pub mod xss;
 pub mod sql_injection;
+pub mod crypt_facade;
+pub mod hash_facade;
+pub mod csrf_facade;
+
+pub use crypt_facade::Crypt;
+pub use hash_facade::Hash;
+pub use csrf_facade::Csrf;

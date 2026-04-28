@@ -55,7 +55,8 @@ async-trait = "0.1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls-no-provider"], default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # HTML 实体编码/解码
 html-escape = "0.2"
 # 序列化格式支持
@@ -81,3 +82,16 @@ bzip2 = "0.4"
 # SHA1 (用于 Phar 签名)
 sha1 = "0.10"
 bitflags = "2.4"
+# 文件系统遍历
+walkdir = "2.5"
+# S3 兼容存储 SDK（支持 AWS S3、MinIO、Cloudflare R2 等）
+# rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
+# 阿里云 OSS SDK
+# aliyun-oss-rust-sdk = { version = "0.2", features = ["async"], default-features = false }
+# 腾讯云 COS SDK
+# qcos = { version = "0.1", default-features = false }
+# FTP/FTPS 客户端
+suppaftp = { version = "8", features = ["tokio", "secure"] }
+
+[dev-dependencies]
+tempfile = "3"

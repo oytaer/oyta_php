@@ -629,9 +629,12 @@ mod tests {
     #[test]
     fn test_eval_sandbox_recursion() {
         let mut sandbox = EvalSandbox::new();
-        for _ in 0..50 {
+        // 默认的 max_recursion_depth 是 100
+        // 调用 100 次应该成功
+        for _ in 0..100 {
             assert!(sandbox.enter_recursion().is_ok());
         }
+        // 第 101 次应该失败
         assert!(sandbox.enter_recursion().is_err());
     }
 }

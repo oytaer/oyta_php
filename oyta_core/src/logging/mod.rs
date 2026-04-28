@@ -5,3 +5,6 @@
 pub mod setup;
 pub mod file_writer;
 pub mod channel;
+pub mod facade;
+
+pub use facade::Log;

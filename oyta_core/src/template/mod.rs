@@ -7,3 +7,6 @@
 pub mod engine;
 pub mod facade;
 pub mod tera_engine;
+
+// 导出 View 门面
+pub use facade::View;

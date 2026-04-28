@@ -7,3 +7,6 @@
 pub mod builtin;
 pub mod dispatcher;
 pub mod types;
+pub mod facade;
+
+pub use facade::Middleware;

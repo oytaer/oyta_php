@@ -19,6 +19,7 @@ pub mod period;
 pub mod parser;
 pub mod format;
 pub mod relative;
+pub mod facade;
 
 // 重新导出主要类型，方便外部使用
 pub use datetime::{DateTimeValue, DateTimeImmutableValue};
@@ -28,3 +29,4 @@ pub use period::DatePeriodValue;
 pub use parser::DateTimeParser;
 pub use format::DateTimeFormatter;
 pub use relative::RelativeTimeParser;
+pub use facade::Date;

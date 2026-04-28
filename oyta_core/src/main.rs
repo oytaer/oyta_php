@@ -11,8 +11,8 @@ use anyhow::Result;
 
 // 引入各模块
 mod cache;
-mod cli;
 mod cluster;
+mod command;
 mod composer;
 mod config;
 mod container;
@@ -47,8 +47,10 @@ mod sandbox;
 mod search;
 mod security;
 mod serialize;
+mod service;
 mod session;
 mod simd;
+mod storage;
 mod symbol_table;
 mod template;
 mod timer;
@@ -62,13 +64,13 @@ mod xml;
 async fn main() -> Result<()> {
     // 第一步：解析命令行参数
     // 使用 clap 解析，如果用户输入了无效命令会自动显示帮助信息并退出
-    let args = cli::args::parse();
+    let args = command::args::parse();
 
     // 第二步：初始化日志系统
     // 根据是否为 run 命令来决定日志级别
     // run 命令默认 info 级别，其他命令默认 warn 级别
     let debug_mode = match &args.command {
-        Some(cli::args::Commands::Run { debug, .. }) => *debug,
+        Some(command::args::Commands::Run { debug, .. }) => *debug,
         _ => false,
     };
     logging::setup::init(debug_mode)?;
@@ -82,15 +84,15 @@ async fn main() -> Result<()> {
     match &args.command {
         Some(command) => {
             // 记录用户执行的命令
-            tracing::debug!("执行命令: {}", cli::args::command_description(command));
+            tracing::debug!("执行命令: {}", command::args::command_description(command));
             // 分发到命令处理器
-            cli::dispatch::dispatch(command).await?;
+            command::dispatch(command).await?;
         }
         None => {
             // 未指定命令时，显示帮助信息
             // 使用 clap 的 print_help 方法
             use clap::CommandFactory;
-            cli::args::Cli::command().print_help()?;
+            command::args::Cli::command().print_help()?;
         }
     }
 
