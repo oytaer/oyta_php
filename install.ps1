@@ -5,7 +5,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $BinaryName = "oyta.exe"
-$DownloadUrl = "https://github.com/user-attachments/files/27156155/x86_64-pc-windows-gnu.zip"
+$BinaryInZip = "oyta-windows-x64.exe"
+$DownloadUrl = "https://github.com/user-attachments/files/27195352/oyta-windows-x64.zip"
 
 function Write-Header {
     Write-Host "=========================================" -ForegroundColor Cyan
@@ -49,9 +50,11 @@ try {
     Write-Host "Extracting..." -ForegroundColor Yellow
     Expand-Archive -Path $zipFile -DestinationPath $tempDir -Force
     
-    $extractedBinary = Join-Path $tempDir $BinaryName
+    $extractedBinary = Join-Path $tempDir $BinaryInZip
     if (-not (Test-Path $extractedBinary)) {
-        Write-Host "Error: Binary not found after extraction" -ForegroundColor Red
+        Write-Host "Error: Binary not found after extraction (expected: $BinaryInZip)" -ForegroundColor Red
+        Write-Host "Contents of temp dir:" -ForegroundColor Yellow
+        Get-ChildItem -Path $tempDir
         exit 1
     }
     

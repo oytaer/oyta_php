@@ -41,13 +41,13 @@ get_download_url() {
     
     case "$arch" in
         x86_64)
-            echo "https://github.com/user-attachments/files/27156160/x86_64-unknown-linux-musl.zip"
+            echo "https://github.com/user-attachments/files/27195349/oyta-linux-x64-musl.zip|oyta-linux-x64-musl"
             ;;
         aarch64)
             if [ "$libc" = "musl" ]; then
-                echo "https://github.com/user-attachments/files/27156152/aarch64-unknown-linux-musl.zip"
+                echo "https://github.com/user-attachments/files/27195346/oyta-linux-arm64-musl.zip|oyta-linux-arm64-musl"
             else
-                echo "https://github.com/user-attachments/files/27156135/aarch64-unknown-linux-gnu.zip"
+                echo "https://github.com/user-attachments/files/27195339/oyta-linux-arm64.zip|oyta-linux-arm64"
             fi
             ;;
         *)
@@ -100,13 +100,17 @@ LIBC=$(detect_libc)
 echo "Detected architecture: $ARCH"
 echo "Detected libc: $LIBC"
 
-DOWNLOAD_URL=$(get_download_url "$ARCH" "$LIBC")
-if [ -z "$DOWNLOAD_URL" ]; then
+DOWNLOAD_INFO=$(get_download_url "$ARCH" "$LIBC")
+if [ -z "$DOWNLOAD_INFO" ]; then
     echo "Error: Could not determine download URL for your system"
     exit 1
 fi
 
+DOWNLOAD_URL=$(echo "$DOWNLOAD_INFO" | cut -d'|' -f1)
+BINARY_IN_ZIP=$(echo "$DOWNLOAD_INFO" | cut -d'|' -f2)
+
 echo "Download URL: $DOWNLOAD_URL"
+echo "Binary name: $BINARY_IN_ZIP"
 echo ""
 
 ensure_unzip
@@ -126,9 +130,11 @@ fi
 echo "Extracting..."
 unzip -q -o "$ZIP_FILE" -d "$TEMP_DIR"
 
-BINARY_PATH="$TEMP_DIR/$BINARY_NAME"
+BINARY_PATH="$TEMP_DIR/$BINARY_IN_ZIP"
 if [ ! -f "$BINARY_PATH" ]; then
-    echo "Error: Binary not found after extraction"
+    echo "Error: Binary not found after extraction (expected: $BINARY_IN_ZIP)"
+    echo "Contents of temp dir:"
+    ls -la "$TEMP_DIR"
     exit 1
 fi
 
