@@ -60,7 +60,7 @@ pub async fn dispatch(command: &Commands) -> Result<()> {
             daemon,
             debug,
             workers,
-        } => handle_run(host, *port, daemon, debug, workers).await,
+        } => handle_run(host.as_deref(), *port, daemon, debug, workers).await,
 
         Commands::Fastcgi { socket, debug } => handle_fastcgi(socket, debug).await,
 

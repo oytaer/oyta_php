@@ -56,6 +56,36 @@ get_download_url() {
     esac
 }
 
+install_unzip() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "Installing unzip via apt-get..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq unzip
+    elif command -v yum >/dev/null 2>&1; then
+        echo "Installing unzip via yum..."
+        sudo yum install -y -q unzip
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "Installing unzip via dnf..."
+        sudo dnf install -y -q unzip
+    elif command -v apk >/dev/null 2>&1; then
+        echo "Installing unzip via apk..."
+        sudo apk add --quiet unzip
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "Installing unzip via pacman..."
+        sudo pacman -S --noconfirm --quiet unzip
+    else
+        echo "Error: Could not detect package manager. Please install unzip manually."
+        exit 1
+    fi
+}
+
+ensure_unzip() {
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "unzip not found, installing..."
+        install_unzip
+    fi
+}
+
 echo "========================================="
 echo "       Oyta PHP Installer"
 echo "========================================="
@@ -79,14 +109,17 @@ fi
 echo "Download URL: $DOWNLOAD_URL"
 echo ""
 
+ensure_unzip
+
 ZIP_FILE="$TEMP_DIR/oyta.zip"
 echo "Downloading..."
-if command -v curl &> /dev/null; then
+if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$DOWNLOAD_URL" -o "$ZIP_FILE"
-elif command -v wget &> /dev/null; then
+elif command -v wget >/dev/null 2>&1; then
     wget -q "$DOWNLOAD_URL" -O "$ZIP_FILE"
 else
     echo "Error: Neither curl nor wget is available"
+    echo "Please install curl or wget first"
     exit 1
 fi
 
@@ -104,7 +137,6 @@ if [ -w "$INSTALL_DIR" ]; then
     mv "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
     chmod +x "$INSTALL_DIR/$BINARY_NAME"
 else
-    echo "Requires sudo to install to $INSTALL_DIR"
     sudo mv "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
     sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 fi

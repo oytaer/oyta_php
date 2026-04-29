@@ -13,12 +13,12 @@ use crate::project;
 /// 包括：配置文件、环境变量、composer.json、目录结构等
 ///
 /// # 参数
-/// - `app_name`: 应用名称（可选，默认为 index）
+/// - `app_name`: 应用名称（可选，不指定则为单应用模式）
 pub async fn handle_init(app_name: Option<&str>) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
 
-    let app = app_name.unwrap_or("index");
+    let is_multi_app = app_name.is_some();
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  OYTAPHP 项目初始化");
@@ -27,7 +27,7 @@ pub async fn handle_init(app_name: Option<&str>) -> Result<()> {
 
     // 1. 创建目录结构
     println!("  [1/5] 创建目录结构...");
-    create_directories(&project, app)?;
+    create_directories(&project, app_name)?;
     println!("  ✓ 目录结构创建完成");
 
     // 2. 生成配置文件
@@ -47,7 +47,7 @@ pub async fn handle_init(app_name: Option<&str>) -> Result<()> {
 
     // 5. 创建默认控制器
     println!("\n  [5/5] 创建默认控制器...");
-    create_default_controller(&project, app)?;
+    create_default_controller(&project, app_name)?;
     println!("  ✓ 默认控制器创建完成");
 
     println!();
@@ -55,8 +55,14 @@ pub async fn handle_init(app_name: Option<&str>) -> Result<()> {
     println!("  项目初始化完成！");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
-    println!("  项目结构:");
-    println!("    app/{}/", app);
+    
+    if is_multi_app {
+        println!("  项目结构 (多应用模式):");
+        println!("    app/{}/", app_name.unwrap());
+    } else {
+        println!("  项目结构 (单应用模式):");
+        println!("    app/");
+    }
     println!("    ├── controller/");
     println!("    ├── model/");
     println!("    ├── middleware/");
@@ -78,9 +84,18 @@ pub async fn handle_init(app_name: Option<&str>) -> Result<()> {
 }
 
 /// 创建目录结构
-fn create_directories(project: &project::detector::Project, app_name: &str) -> Result<()> {
+/// 默认创建单应用模式（app/controller/）
+/// 如果指定了 app_name，则创建多应用模式（app/{app_name}/controller/）
+fn create_directories(project: &project::detector::Project, app_name: Option<&str>) -> Result<()> {
     // 应用目录
-    let app_dir = project.root.join("app").join(app_name);
+    let app_dir = if let Some(name) = app_name {
+        // 多应用模式: app/{app_name}/
+        project.root.join("app").join(name)
+    } else {
+        // 单应用模式: app/
+        project.root.join("app")
+    };
+    
     std::fs::create_dir_all(app_dir.join("controller"))?;
     std::fs::create_dir_all(app_dir.join("model"))?;
     std::fs::create_dir_all(app_dir.join("middleware"))?;
@@ -228,8 +243,19 @@ return [
     // 调试模式
     'debug' => env('APP_DEBUG', false),
     
-    // 应用地址
+    // 应用地址（对外访问的 URL，用于生成链接）
+    // 例如：http://example.com 或 https://www.example.com
     'url' => env('APP_URL', 'http://localhost'),
+    
+    // 服务器监听地址（内部监听）
+    // 0.0.0.0 表示监听所有网络接口，127.0.0.1 表示只监听本地
+    'host' => env('APP_HOST', '0.0.0.0'),
+    
+    // 服务器监听端口
+    'port' => env('APP_PORT', 8000),
+    
+    // 工作进程数量
+    'workers' => env('APP_WORKERS', 2),
     
     // 时区
     'timezone' => env('APP_TIMEZONE', 'Asia/Shanghai'),
@@ -792,6 +818,11 @@ APP_ENV=development
 APP_DEBUG=true
 APP_URL=http://localhost
 
+# 服务器配置
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_WORKERS=2
+
 # 数据库配置
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -848,16 +879,30 @@ fn create_composer_json(project: &project::detector::Project) -> Result<()> {
 }
 
 /// 创建默认控制器
-fn create_default_controller(project: &project::detector::Project, app_name: &str) -> Result<()> {
-    let controller_path = project.root
-        .join("app")
-        .join(app_name)
-        .join("controller")
-        .join("Index.php");
+/// 默认创建单应用模式（app/controller/Index.php）
+/// 如果指定了 app_name，则创建多应用模式（app/{app_name}/controller/Index.php）
+fn create_default_controller(project: &project::detector::Project, app_name: Option<&str>) -> Result<()> {
+    // 控制器路径
+    let controller_path = if let Some(name) = app_name {
+        // 多应用模式
+        project.root
+            .join("app")
+            .join(name)
+            .join("controller")
+            .join("Index.php")
+    } else {
+        // 单应用模式
+        project.root
+            .join("app")
+            .join("controller")
+            .join("Index.php")
+    };
 
-    let content = format!(r#"<?php
+    let content = if let Some(name) = app_name {
+        // 多应用模式
+        format!(r#"<?php
 
-namespace app\{app_name}\controller;
+namespace app\{}\controller;
 
 /**
  * 默认控制器
@@ -872,7 +917,28 @@ class Index
         return 'Hello, OYTAPHP!';
     }}
 }}
-"#, app_name = app_name);
+"#, name)
+    } else {
+        // 单应用模式
+        r#"<?php
+
+namespace app\controller;
+
+/**
+ * 默认控制器
+ */
+class Index
+{
+    /**
+     * 首页
+     */
+    public function index()
+    {
+        return 'Hello, OYTAPHP!';
+    }
+}
+"#.to_string()
+    };
 
     std::fs::write(&controller_path, content)?;
 
@@ -883,7 +949,7 @@ class Index
  * 路由定义文件
  */
 
-use think\facade\Route;
+use oyta\facade\Route;
 
 // 在此定义你的路由
 // Route::get('hello/:name', 'index/hello');
@@ -903,23 +969,26 @@ use think\facade\Route;
 /// - `project_name`: 项目名称
 /// - `app_name`: 应用名称（可选，默认为 index）
 pub async fn handle_new(project_name: &str, app_name: Option<&str>) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
-    let project_root = current_dir.join(project_name);
+    // 支持绝对路径和相对路径
+    let project_root = if std::path::Path::new(project_name).is_absolute() {
+        std::path::PathBuf::from(project_name)
+    } else {
+        let current_dir = std::env::current_dir()?;
+        current_dir.join(project_name)
+    };
 
     // 检查目录是否已存在
     if project_root.exists() {
-        return Err(anyhow::anyhow!("目录 '{}' 已存在", project_name));
+        return Err(anyhow::anyhow!("目录 '{}' 已存在", project_root.display()));
     }
 
-    let app = app_name.unwrap_or("index");
-
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("  OYTAPHP 创建新项目: {}", project_name);
+    println!("  OYTAPHP 创建新项目: {}", project_root.display());
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
 
     // 创建项目结构
-    create_project_structure(&project_root, app)?;
+    create_project_structure(&project_root, app_name)?;
 
     println!();
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -927,7 +996,7 @@ pub async fn handle_new(project_name: &str, app_name: Option<&str>) -> Result<()
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("  进入项目目录:");
-    println!("    cd {}", project_name);
+    println!("    cd {}", project_root.display());
     println!();
     println!("  启动服务器:");
     println!("    oyta run");
@@ -937,12 +1006,24 @@ pub async fn handle_new(project_name: &str, app_name: Option<&str>) -> Result<()
 }
 
 /// 创建完整的项目结构
-fn create_project_structure(project_root: &std::path::Path, app_name: &str) -> Result<()> {
+/// 默认创建单应用模式（app/controller/）
+/// 如果指定了 --app 参数，则创建多应用模式（app/{app_name}/controller/）
+fn create_project_structure(project_root: &std::path::Path, app_name: Option<&str>) -> Result<()> {
     // 创建项目根目录
     std::fs::create_dir_all(project_root)?;
 
+    // 判断是单应用还是多应用模式
+    let is_multi_app = app_name.is_some();
+    
     // 应用目录
-    let app_dir = project_root.join("app").join(app_name);
+    let app_dir = if let Some(name) = app_name {
+        // 多应用模式: app/{app_name}/
+        project_root.join("app").join(name)
+    } else {
+        // 单应用模式: app/
+        project_root.join("app")
+    };
+    
     std::fs::create_dir_all(app_dir.join("controller"))?;
     std::fs::create_dir_all(app_dir.join("model"))?;
     std::fs::create_dir_all(app_dir.join("middleware"))?;
@@ -1001,6 +1082,11 @@ APP_ENV=development
 APP_DEBUG=true
 APP_URL=http://localhost
 
+# 服务器配置
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_WORKERS=2
+
 # 数据库配置
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -1043,26 +1129,139 @@ REDIS_DATABASE=0
 "#;
     std::fs::write(project_root.join("composer.json"), composer_content)?;
 
+    // 创建 BaseController 基类控制器
+    let base_controller_content = r#"<?php
+
+namespace app;
+
+/**
+ * 控制器基类
+ * 所有控制器都应继承此类
+ */
+abstract class BaseController
+{
+    /**
+     * 当前请求对象
+     * @var object
+     */
+    protected $request;
+
+    /**
+     * 构造函数
+     */
+    public function __construct()
+    {
+        // 初始化请求对象
+        $this->request = request();
+    }
+
+    /**
+     * 获取请求对象
+     * @return object
+     */
+    protected function request()
+    {
+        return $this->request;
+    }
+
+    /**
+     * 返回 JSON 响应
+     * @param mixed $data 数据
+     * @param int $code 状态码
+     * @param string $msg 消息
+     * @return string
+     */
+    protected function json($data = [], int $code = 200, string $msg = 'success'): string
+    {
+        return json_encode([
+            'code' => $code,
+            'msg' => $msg,
+            'data' => $data,
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * 返回成功响应
+     * @param mixed $data 数据
+     * @param string $msg 消息
+     * @return string
+     */
+    protected function success($data = [], string $msg = 'success'): string
+    {
+        return $this->json($data, 200, $msg);
+    }
+
+    /**
+     * 返回错误响应
+     * @param string $msg 消息
+     * @param int $code 状态码
+     * @return string
+     */
+    protected function error(string $msg = 'error', int $code = 400): string
+    {
+        return $this->json([], $code, $msg);
+    }
+}
+"#;
+    std::fs::write(project_root.join("app").join("BaseController.php"), base_controller_content)?;
+
     // 创建默认控制器
-    let controller_content = format!(r#"<?php
+    let controller_content = if let Some(name) = app_name {
+        // 多应用模式
+        format!(r#"<?php
 
-namespace app\{app_name}\controller;
+namespace app\{}\controller;
 
-class Index
+use app\BaseController;
+
+/**
+ * 默认控制器
+ */
+class Index extends BaseController
 {{
+    /**
+     * 首页
+     */
     public function index()
     {{
         return 'Hello, OYTAPHP!';
     }}
 }}
-"#, app_name = app_name);
+"#, name)
+    } else {
+        // 单应用模式
+        r#"<?php
+
+namespace app\controller;
+
+use app\BaseController;
+
+/**
+ * 默认控制器
+ */
+class Index extends BaseController
+{
+    /**
+     * 首页
+     */
+    public function index()
+    {
+        return 'Hello, OYTAPHP!';
+    }
+}
+"#.to_string()
+    };
     std::fs::write(app_dir.join("controller").join("Index.php"), controller_content)?;
 
     // 创建路由文件
     std::fs::write(
         project_root.join("route").join("app.php"),
         r#"<?php
-use think\facade\Route;
+
+use oyta\facade\Route;
+
+// 在此定义你的路由
+// Route::get('hello/:name', 'index/hello');
 "#,
     )?;
 

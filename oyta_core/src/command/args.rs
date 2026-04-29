@@ -32,22 +32,23 @@ pub enum Commands {
     // ========================================================================
     
     /// 启动 HTTP 服务器（对应 php think run）
+    /// 配置优先级：命令行参数 > config/app.php > .env 环境变量 > 默认值
     Run {
-        /// 监听主机地址，默认绑定所有网卡 0.0.0.0
-        #[arg(short = 'H', long, default_value = "0.0.0.0")]
-        host: String,
+        /// 监听主机地址（可选，默认从 config/app.php 读取）
+        #[arg(short = 'H', long)]
+        host: Option<String>,
 
-        /// 监听端口号，默认 8000
-        #[arg(short, long, default_value_t = 8000)]
-        port: u16,
+        /// 监听端口号（可选，默认从 config/app.php 读取）
+        #[arg(short, long)]
+        port: Option<u16>,
 
         /// 是否以守护进程模式运行
         #[arg(long, default_value_t = false)]
         daemon: bool,
 
-        /// 是否开启调试模式
-        #[arg(long, default_value_t = false)]
-        debug: bool,
+        /// 是否开启调试模式（可选，默认从 config/app.php 读取）
+        #[arg(long)]
+        debug: Option<bool>,
 
         /// 工作进程数量
         #[arg(short = 'w', long)]
@@ -440,7 +441,11 @@ pub fn parse() -> Cli {
 /// 获取命令的简短中文描述
 pub fn command_description(cmd: &Commands) -> String {
     match cmd {
-        Commands::Run { host, port, .. } => format!("启动服务 {}:{}", host, port),
+        Commands::Run { host, port, .. } => {
+            let h = host.as_deref().unwrap_or("0.0.0.0");
+            let p = port.unwrap_or(8000);
+            format!("启动服务 {}:{}", h, p)
+        }
         Commands::Fastcgi { socket, .. } => format!("启动 FastCGI 服务: {}", socket),
         Commands::New { name, .. } => format!("创建新项目: {}", name),
         Commands::Init { name } => format!("初始化项目: {}", name.as_deref().unwrap_or("index")),

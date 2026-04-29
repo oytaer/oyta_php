@@ -134,11 +134,7 @@ impl Interpreter {
         match self.execute_from_source(&class_def.file_path, class_name, method_name, &mut ctx) {
             Ok(value) => Ok(value),
             Err(e) => {
-                tracing::debug!("AST 执行失败，回退到符号表模式: {}", e);
-                Ok(Value::String(format!(
-                    "{}::{}() 执行结果",
-                    class_name, method_name
-                )))
+                Err(e)
             }
         }
     }

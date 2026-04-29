@@ -67,15 +67,11 @@ pub fn dispatch_request(
     req: &OytaRequest,
     method: &HttpMethod,
 ) -> anyhow::Result<OytaResponse> {
-    if req.path == "/" || req.path.is_empty() {
-        return Ok(welcome_page());
-    }
-
     if req.path == "/favicon.ico" {
         return Ok(OytaResponse::new().status(204));
     }
 
-    // 第一步：尝试从路由注册表匹配定义路由
+    // 第一步：尝试从路由注册表匹配定义路由（包括根路径 /）
     if let Some(response) = try_route_match(state, req, method) {
         return Ok(response);
     }
@@ -88,6 +84,11 @@ pub fn dispatch_request(
     // 第三步：尝试 MISS 路由（404 兜底处理器）
     if let Some(response) = try_miss_route(state, req) {
         return Ok(response);
+    }
+
+    // 如果是根路径且没有任何路由匹配，显示欢迎页面
+    if req.path == "/" || req.path.is_empty() {
+        return Ok(welcome_page());
     }
 
     // 没有匹配的路由，返回 404
@@ -132,14 +133,38 @@ fn try_route_match(
 
 /// 尝试自动路由匹配
 /// 根据路径自动推断控制器和方法
-/// 单应用: /controller/action
-/// 多应用: /app/controller/action
+/// 单应用: /控制器/方法
+/// 多应用: /应用/控制器/方法
+/// 根路径 /: Index 控制器的 index 方法
 /// 只有在符号表中找到对应控制器时才返回匹配
 fn try_auto_route(
     state: &AppState,
     req: &OytaRequest,
     _method: &HttpMethod,
 ) -> Option<OytaResponse> {
+    // 处理根路径 / - 尝试匹配 Index 控制器的 index 方法
+    if req.path == "/" || req.path.is_empty() {
+        // 尝试单应用模式: app\controller\Index
+        let single_app_class = "app\\controller\\Index";
+        if state.registry.find_class(single_app_class).is_some() {
+            return execute_controller(state, single_app_class, "index", req);
+        }
+        
+        // 尝试多应用模式: app\index\controller\Index
+        let multi_app_class = "app\\index\\controller\\Index";
+        if state.registry.find_class(multi_app_class).is_some() {
+            return execute_controller(state, multi_app_class, "index", req);
+        }
+        
+        // 模糊匹配：查找任何 Index 控制器
+        let fuzzy_results = state.registry.find_class_fuzzy("Index");
+        if let Some(controller_def) = fuzzy_results.into_iter().find(|c| c.is_controller()) {
+            return execute_controller(state, &controller_def.full_name, "index", req);
+        }
+        
+        return None;
+    }
+
     let path = req.path.trim_start_matches('/');
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
@@ -147,10 +172,38 @@ fn try_auto_route(
         return None;
     }
 
+    // 尝试多应用模式: /应用/控制器/方法 或 /应用/控制器 或 /应用
+    if parts.len() >= 1 {
+        let app_name = parts[0];
+        
+        // 检查是否存在该应用目录
+        let app_dir = state.project_root.join("app").join(app_name);
+        if app_dir.exists() && app_dir.is_dir() {
+            // 多应用模式
+            let controller_name = if parts.len() >= 2 {
+                kebab_to_pascal(parts[1])
+            } else {
+                "Index".to_string()
+            };
+            let method_name = if parts.len() > 2 {
+                kebab_to_camel(parts[2])
+            } else {
+                "index".to_string()
+            };
+
+            let full_class = format!("app\\{}\\controller\\{}", app_name, controller_name);
+
+            if state.registry.find_class(&full_class).is_some() {
+                tracing::debug!("多应用模式路由匹配: app={}, controller={}, method={}", app_name, controller_name, method_name);
+                return execute_controller(state, &full_class, &method_name, req);
+            }
+        }
+    }
+
     // 单应用模式下的自动路由
-    // /index → Index 控制器的 index 方法
-    // /index/hello → Index 控制器的 hello 方法
-    // /user/list → User 控制器的 list 方法
+    // /控制器 → 控制器的 index 方法
+    // /控制器/方法 → 控制器的指定方法
+    // 注意：/index/index 这种冗余路径不支持（index 是默认值，不应显式指定）
     if parts.len() <= 2 {
         let controller_name = kebab_to_pascal(parts[0]);
         let method_name = if parts.len() > 1 {
@@ -159,19 +212,33 @@ fn try_auto_route(
             "index".to_string()
         };
 
-        let full_class = format!("app\\controller\\{}", controller_name);
-
-        // 在符号表中查找控制器，只有存在才匹配
-        if state.registry.find_class(&full_class).is_none() {
-            // 尝试模糊匹配
-            let fuzzy_results = state.registry.find_class_fuzzy(&controller_name);
-            let controller_def = fuzzy_results.into_iter().find(|c| c.is_controller());
-            if controller_def.is_none() {
-                return None;
-            }
+        // 禁止冗余路径：/index/index（控制器名和方法名都是默认值）
+        // 这种路径应该通过 / 或 /index 访问
+        if controller_name == "Index" && method_name == "index" && parts.len() == 2 {
+            tracing::debug!("拒绝冗余路径: /index/index，请使用 / 或 /index");
+            return None;
         }
 
-        return execute_controller(state, &full_class, &method_name, req);
+        let full_class = format!("app\\controller\\{}", controller_name);
+        
+        tracing::debug!("单应用模式路由匹配: path={}, controller={}, method={}, full_class={}", 
+            req.path, controller_name, method_name, full_class);
+
+        // 在符号表中查找控制器，只有存在才匹配
+        if state.registry.find_class(&full_class).is_some() {
+            tracing::debug!("找到控制器: {}", full_class);
+            return execute_controller(state, &full_class, &method_name, req);
+        }
+        
+        // 尝试模糊匹配
+        let fuzzy_results = state.registry.find_class_fuzzy(&controller_name);
+        if let Some(controller_def) = fuzzy_results.into_iter().find(|c| c.is_controller()) {
+            tracing::debug!("模糊匹配找到控制器: {}", controller_def.full_name);
+            return execute_controller(state, &controller_def.full_name, &method_name, req);
+        }
+        
+        tracing::debug!("未找到控制器: {}", full_class);
+        return None;
     }
 
     None

@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     // 根据是否为 run 命令来决定日志级别
     // run 命令默认 info 级别，其他命令默认 warn 级别
     let debug_mode = match &args.command {
-        Some(command::args::Commands::Run { debug, .. }) => *debug,
+        Some(command::args::Commands::Run { debug, .. }) => debug.unwrap_or(false),
         _ => false,
     };
     logging::setup::init(debug_mode)?;

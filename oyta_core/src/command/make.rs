@@ -35,8 +35,8 @@ pub async fn handle_build(name: &str) -> Result<()> {
     // view 目录可选，用于传统模板渲染
     std::fs::create_dir_all(app_dir.join("view"))?;
 
-    // 创建默认控制器
-    let controller_content = generate_controller_content("Index", false, false);
+    // 创建默认控制器（传递应用名称）
+    let controller_content = generate_controller_content("Index", false, false, Some(name));
     std::fs::write(
         app_dir.join("controller/Index.php"),
         controller_content,
@@ -66,7 +66,7 @@ pub async fn handle_build(name: &str) -> Result<()> {
 /// 创建控制器
 ///
 /// # 参数
-/// - `name`: 控制器名称
+/// - `name`: 控制器名称（支持格式：`Index` 或 `admin/Index`）
 /// - `plain`: 是否创建空控制器
 /// - `api`: 是否创建 API 控制器
 pub async fn handle_make_controller(name: &str, plain: bool, api: bool) -> Result<()> {
@@ -76,19 +76,32 @@ pub async fn handle_make_controller(name: &str, plain: bool, api: bool) -> Resul
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
-    // 解析控制器路径
-    let (namespace, class_name) = parse_class_name(name, "controller");
+    // 解析控制器路径，支持多应用模式
+    // 格式：`Index`（单应用）或 `admin/Index`（多应用）
+    let (app_name, class_name) = if name.contains('/') || name.contains('\\') {
+        let parts: Vec<&str> = name.split(['/', '\\']).collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Index").to_string();
+        (Some(app), class)
+    } else {
+        (None, name.to_string())
+    };
     
     // 创建目录
-    let controller_dir = project.root.join("app").join("controller");
-    let file_path = controller_dir.join(format!("{}.php", name.replace("\\", "/")));
+    let controller_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("controller")
+    } else {
+        project.root.join("app").join("controller")
+    };
+    
+    let file_path = controller_dir.join(format!("{}.php", class_name));
     
     if let Some(parent) = file_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
     // 生成控制器内容
-    let content = generate_controller_content(&class_name, plain, api);
+    let content = generate_controller_content(&class_name, plain, api, app_name.as_deref());
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -417,11 +430,17 @@ fn parse_class_name(name: &str, default_namespace: &str) -> (String, String) {
 }
 
 /// 生成控制器内容
-fn generate_controller_content(name: &str, plain: bool, api: bool) -> String {
+fn generate_controller_content(name: &str, plain: bool, api: bool, app_name: Option<&str>) -> String {
+    let namespace = if let Some(app) = app_name {
+        format!("app\\{}\\controller", app)
+    } else {
+        "app\\controller".to_string()
+    };
+    
     if api {
         format!(r#"<?php
 
-namespace app\controller;
+namespace {};
 
 use app\BaseController;
 
@@ -442,11 +461,11 @@ class {} extends BaseController
         ]);
     }}
 }}
-"#, name, name)
+"#, namespace, name, name)
     } else if plain {
         format!(r#"<?php
 
-namespace app\controller;
+namespace {};
 
 use app\BaseController;
 
@@ -457,11 +476,11 @@ class {} extends BaseController
 {{
     // 在此添加你的方法
 }}
-"#, name, name)
+"#, namespace, name, name)
     } else {
         format!(r#"<?php
 
-namespace app\controller;
+namespace {};
 
 use app\BaseController;
 
@@ -478,7 +497,7 @@ class {} extends BaseController
         return 'Hello, {}!';
     }}
 }}
-"#, name, name, name)
+"#, namespace, name, name, name)
     }
 }
 

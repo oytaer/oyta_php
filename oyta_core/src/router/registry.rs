@@ -322,6 +322,13 @@ impl RouteRegistry {
 
                 let method_path_name = camel_to_kebab(&method.name);
 
+                // 单应用模式下，跳过冗余路由 /index/index
+                // index 是默认控制器名和默认方法名，这种路由应该通过 / 或 /index 访问
+                if !is_multi_app && path_name == "index" && method_path_name == "index" {
+                    tracing::debug!("跳过冗余自动路由: /index/index");
+                    continue;
+                }
+
                 // 构建路由路径
                 let route_path = if is_multi_app {
                     if let Some(app) = app_name {

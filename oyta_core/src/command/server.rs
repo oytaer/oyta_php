@@ -16,20 +16,21 @@ use crate::project;
 /// 启动流程：
 /// 1. 检测项目根目录
 /// 2. 加载 .env 环境变量
-/// 3. 确保运行时目录存在
-/// 4. 启动 Axum HTTP 服务
+/// 3. 加载 config/ 目录下的配置文件
+/// 4. 确保运行时目录存在
+/// 5. 启动 Axum HTTP 服务
 ///
-/// # 参数
+/// # 参数（均可选，优先级：命令行 > 配置文件 > 环境变量 > 默认值）
 /// - `host`: 监听地址
 /// - `port`: 监听端口
 /// - `daemon`: 是否守护进程模式
 /// - `debug`: 是否调试模式
 /// - `workers`: 工作进程数量
 pub async fn handle_run(
-    host: &str,
-    port: u16,
+    host: Option<&str>,
+    port: Option<u16>,
     _daemon: &bool,
-    is_debug: &bool,
+    debug: &Option<bool>,
     workers: &Option<usize>,
 ) -> Result<()> {
     // 检测项目根目录
@@ -52,9 +53,49 @@ pub async fn handle_run(
     config_loader.load(&config_store, &mut php_parser)?;
     config::facade::Config::init_from_store(&config_store);
 
+    // 从配置中读取设置（命令行参数优先级最高）
+    let is_debug = debug.unwrap_or_else(|| {
+        config_store.get_bool("app.debug").unwrap_or(false)
+    });
+
+    let server_host = host.map(|s| s.to_string()).unwrap_or_else(|| {
+        config_store.get_string("app.host").unwrap_or_else(|| {
+            std::env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string())
+        })
+    });
+
+    let server_port = port.unwrap_or_else(|| {
+        config_store.get_int("app.port")
+            .and_then(|p| if p > 0 && p <= 65535 { Some(p as u16) } else { None })
+            .unwrap_or_else(|| {
+                std::env::var("APP_PORT")
+                    .ok()
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or(8000)
+            })
+    });
+
+    let worker_count = workers.unwrap_or_else(|| {
+        config_store.get_int("app.workers")
+            .and_then(|w| if w > 0 { Some(w as usize) } else { None })
+            .unwrap_or_else(|| {
+                std::env::var("WORKERS")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .filter(|&n| n > 0)
+                    .unwrap_or(2)
+            })
+    });
+
     // 构建路由表
     let route_registry = crate::router::registry::RouteRegistry::new();
     let controllers = scanner.registry().get_controllers();
+    
+    // 调试：输出扫描到的控制器
+    for c in &controllers {
+        tracing::debug!("扫描到控制器: {} (namespace: {:?})", c.full_name, c.namespace);
+    }
+    
     route_registry.generate_auto_routes(&controllers, project.is_multi_app(), None);
 
     // 解析路由定义文件
@@ -77,38 +118,29 @@ pub async fn handle_run(
         route_registry_arc,
         middleware_dispatcher,
         project.root.clone(),
-        *is_debug,
+        is_debug,
     );
-
-    // 从环境变量读取工作进程数，默认为 2
-    let worker_count = workers.unwrap_or_else(|| {
-        std::env::var("WORKERS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(2)
-    });
 
     // 输出启动信息
     tracing::info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     tracing::info!("  OYTAPHP v{}", env!("CARGO_PKG_VERSION"));
-    tracing::info!("  监听地址: {}:{}", host, port);
-    tracing::info!("  调试模式: {}", if *is_debug { "开启" } else { "关闭" });
+    tracing::info!("  监听地址: {}:{}", server_host, server_port);
+    tracing::info!("  调试模式: {}", if is_debug { "开启" } else { "关闭" });
     tracing::info!("  工作进程: {}", worker_count);
     tracing::info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // 构建服务器配置
     let server_config = crate::http::server::ServerConfig {
-        host: host.to_string(),
-        port,
+        host: server_host.clone(),
+        port: server_port,
         project_root: project.root.clone(),
         public_dir: project.public_dir.clone(),
         workers: worker_count,
-        debug: *is_debug,
+        debug: is_debug,
     };
 
     // 如果是调试模式，启动热重载
-    if *is_debug {
+    if is_debug {
         let hot_reload_registry = app_state.registry.clone();
         let hot_reload_root = project.root.clone();
         tokio::spawn(async move {
