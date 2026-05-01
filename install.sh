@@ -41,14 +41,14 @@ get_download_url() {
     
     case "$arch" in
         x86_64)
-            echo "https://github.com/user-attachments/files/27195349/oyta-linux-x64-musl.zip|oyta-linux-x64-musl"
+            if [ "$libc" = "musl" ]; then
+                echo "https://github.com/user-attachments/files/27267914/oyta-linux-x86_64-musl.zip|oyta-linux-x86_64-musl"
+            else
+                echo "https://github.com/user-attachments/files/27267913/oyta-linux-x86_64.zip|oyta-linux-x86_64"
+            fi
             ;;
         aarch64)
-            if [ "$libc" = "musl" ]; then
-                echo "https://github.com/user-attachments/files/27195346/oyta-linux-arm64-musl.zip|oyta-linux-arm64-musl"
-            else
-                echo "https://github.com/user-attachments/files/27195339/oyta-linux-arm64.zip|oyta-linux-arm64"
-            fi
+            echo "https://github.com/user-attachments/files/27267911/oyta-linux-arm64.zip|oyta-linux-arm64"
             ;;
         *)
             echo ""

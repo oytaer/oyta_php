@@ -5,8 +5,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $BinaryName = "oyta.exe"
-$BinaryInZip = "oyta-windows-x64.exe"
-$DownloadUrl = "https://github.com/user-attachments/files/27195352/oyta-windows-x64.zip"
+$BinaryInZip = "oyta-windows-x86_64.exe"
+$DownloadUrl = "https://github.com/user-attachments/files/27267915/oyta-windows-x86_64.zip"
 
 function Write-Header {
     Write-Host "=========================================" -ForegroundColor Cyan
