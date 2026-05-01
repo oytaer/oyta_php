@@ -10,6 +10,7 @@
 //! - 自动过期清理
 
 use anyhow::{Context, Result};
+use rand::Rng;
 use std::collections::HashMap;
 
 /// 分布式 Session 管理器
@@ -283,7 +284,7 @@ impl DistributedSessionManager {
         let lock_key = self.lock_key(session_id);
         let mut conn = client.get_connection()?;
 
-        let token = format!("lock_{}", rand::random::<u64>());
+        let token = format!("lock_{}", rand::rng().random::<u64>());
 
         let result: Option<String> = redis::cmd("SET")
             .arg(&lock_key)

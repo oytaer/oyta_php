@@ -357,8 +357,8 @@ pub fn builtin_str_shuffle(args: &[Value]) -> Result<Value> {
     let s = args.first().map(|v| v.to_string_value()).unwrap_or_default();
     let mut chars: Vec<char> = s.chars().collect();
 
-    // 使用随机数生成器打乱
-    let mut rng = rand::thread_rng();
+    // 使用 rand 0.9.x 的 rng() 函数
+    let mut rng = rand::rng();
     chars.shuffle(&mut rng);
 
     Ok(Value::String(chars.into_iter().collect()))

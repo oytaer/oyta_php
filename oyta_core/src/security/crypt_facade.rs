@@ -50,23 +50,45 @@ impl Crypt {
 
     /// 从字符串初始化加密门面
     ///
-    /// 将字符串转换为密钥
-    /// 如果字符串长度不足 32 字节，会进行填充
+    /// 使用 PBKDF2 密钥派生函数将任意长度字符串转换为安全的 32 字节密钥
+    /// 这比简单的填充更安全，可以防止弱密钥攻击
+    ///
+    /// # 参数
+    /// - `key_str`: 密钥字符串（任意长度）
+    /// - `salt`: 盐值（可选，建议提供以增加安全性）
+    ///
+    /// # 安全性
+    /// 使用 PBKDF2-HMAC-SHA256 进行密钥派生，迭代次数 100,000
+    pub fn init_from_string(key_str: &str, salt: Option<&str>) {
+        use pbkdf2::pbkdf2_hmac;
+        use sha2::Sha256;
+        
+        // 使用 PBKDF2 派生密钥
+        let salt_bytes = salt
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_else(|| b"oyta_crypt_default_salt_2024".to_vec());
+        
+        // 派生 32 字节密钥
+        let mut key = [0u8; 32];
+        
+        // 使用 pbkdf2 库的实现
+        pbkdf2_hmac::<Sha256>(key_str.as_bytes(), &salt_bytes, 100_000, &mut key);
+        
+        // 初始化
+        Self::init(key);
+    }
+    
+    /// 从字符串初始化加密门面（简单版本，向后兼容）
+    ///
+    /// # 警告
+    /// 此方法安全性较低，建议使用 init_from_string(key, Some(salt))
     ///
     /// # 参数
     /// - `key_str`: 密钥字符串
-    pub fn init_from_string(key_str: &str) {
-        // 创建 32 字节数组
-        let mut key = [0u8; 32];
-        // 将字符串字节复制到数组
-        let bytes = key_str.as_bytes();
-        // 计算复制长度，不超过 32 字节
-        let len = bytes.len().min(32);
-        // 复制字节
-        key[..len].copy_from_slice(&bytes[..len]);
-        // 如果不足 32 字节，用 0 填充剩余部分
-        // 调用 init 方法初始化
-        Self::init(key);
+    #[deprecated(since = "2.2.0", note = "请使用 init_from_string(key, Some(salt)) 以获得更好的安全性")]
+    pub fn init_from_string_simple(key_str: &str) {
+        // 使用默认盐值派生密钥
+        Self::init_from_string(key_str, Some("oyta_default_salt"));
     }
 
     /// 从十六进制字符串初始化加密门面

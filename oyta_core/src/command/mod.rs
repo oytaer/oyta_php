@@ -10,6 +10,7 @@ pub mod config;
 pub mod info;
 pub mod init;
 pub mod make;
+pub mod migrate;
 pub mod optimize;
 pub mod queue;
 pub mod route;
@@ -33,6 +34,11 @@ use make::{
     handle_build, handle_make_command, handle_make_controller, handle_make_event,
     handle_make_job, handle_make_listener, handle_make_middleware, handle_make_model,
     handle_make_service, handle_make_subscribe, handle_make_task, handle_make_validate,
+};
+use migrate::{
+    handle_migrate_run, handle_migrate_rollback, handle_migrate_status, handle_migrate_make,
+    handle_migrate_fresh, handle_migrate_reset, handle_migrate_refresh,
+    handle_db_seed, handle_db_table,
 };
 use optimize::{
     handle_clear, handle_optimize, handle_optimize_route, handle_optimize_schema,
@@ -184,6 +190,43 @@ pub async fn dispatch(command: &Commands) -> Result<()> {
         // 扩展包命令
         Commands::VendorPublish { package, force } => {
             handle_vendor_publish(package, *force).await
+        }
+
+        // 数据库迁移命令
+        Commands::MigrateRun { database } => {
+            handle_migrate_run(database).await
+        }
+
+        Commands::MigrateRollback { batch, database } => {
+            handle_migrate_rollback(batch, database).await
+        }
+
+        Commands::MigrateStatus { database } => {
+            handle_migrate_status(database).await
+        }
+
+        Commands::MigrateMake { name, table, create } => {
+            handle_migrate_make(name, table, *create).await
+        }
+
+        Commands::MigrateFresh { database, seed } => {
+            handle_migrate_fresh(database, *seed).await
+        }
+
+        Commands::MigrateReset { database } => {
+            handle_migrate_reset(database).await
+        }
+
+        Commands::MigrateRefresh { database, seed } => {
+            handle_migrate_refresh(database, *seed).await
+        }
+
+        Commands::DbSeed { class, database } => {
+            handle_db_seed(class, database).await
+        }
+
+        Commands::DbTable { table, database } => {
+            handle_db_table(table, database).await
         }
 
         // 信息命令

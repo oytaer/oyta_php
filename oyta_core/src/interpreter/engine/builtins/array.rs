@@ -637,6 +637,7 @@ pub fn builtin_array_product(args: &[Value]) -> Result<Value> {
 /// array_rand — 从数组中随机取出一个或多个单元
 pub fn builtin_array_rand(args: &[Value]) -> Result<Value> {
     use rand::Rng;
+    use rand::seq::SliceRandom;
 
     let array = args.first();
     let num = args.get(1).map(|v| v.to_int()).unwrap_or(1);
@@ -647,15 +648,14 @@ pub fn builtin_array_rand(args: &[Value]) -> Result<Value> {
                 return Ok(Value::Null);
             }
 
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
 
             if num == 1 {
-                let index = rng.gen_range(0..arr.len());
+                let index = rng.random_range(0..arr.len());
                 Ok(Value::Int(index as i64))
             } else {
                 let count = num.min(arr.len() as i64) as usize;
                 let mut indices: Vec<usize> = (0..arr.len()).collect();
-                use rand::seq::SliceRandom;
                 indices.shuffle(&mut rng);
                 let selected: Vec<Value> = indices[..count]
                     .iter()
@@ -670,15 +670,14 @@ pub fn builtin_array_rand(args: &[Value]) -> Result<Value> {
             }
 
             let keys: Vec<&String> = map.iter().map(|(k, _)| k).collect();
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
 
             if num == 1 {
-                let index = rng.gen_range(0..keys.len());
+                let index = rng.random_range(0..keys.len());
                 Ok(Value::String(keys[index].clone()))
             } else {
                 let count = num.min(keys.len() as i64) as usize;
                 let mut keys_owned: Vec<String> = keys.into_iter().cloned().collect();
-                use rand::seq::SliceRandom;
                 keys_owned.shuffle(&mut rng);
                 let selected: Vec<Value> = keys_owned[..count]
                     .iter()
@@ -698,7 +697,7 @@ pub fn builtin_shuffle(args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::IndexedArray(arr)) => {
             let mut shuffled = arr.clone();
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             shuffled.shuffle(&mut rng);
             Ok(Value::Bool(true))
         }

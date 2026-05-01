@@ -21,4 +21,7 @@ pub use handler::ErrorHandler;
 pub use level::ErrorLevel;
 pub use reporter::ErrorReporter;
 pub use shutdown::ShutdownManager;
-pub use types::{ErrorInfo, ExceptionInfo};
+pub use types::{
+    ErrorInfo, ExceptionInfo,
+    ModelNotFoundException, QueryException, TransactionException,
+};

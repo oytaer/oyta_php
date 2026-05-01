@@ -139,11 +139,20 @@ pub fn escape_attr(input: &str) -> String {
 ///
 /// 防止目录遍历攻击
 /// 移除 ../ 和绝对路径前缀
+/// 同时处理 URL 编码的路径遍历尝试
 pub fn sanitize_filename(input: &str) -> String {
-    let cleaned = input
+    // 先进行 URL 解码（防止 URL 编码绕过）
+    let decoded = urlencoding::decode(input).unwrap_or_default().to_string();
+    
+    // 移除路径遍历字符
+    let cleaned = decoded
         .replace("../", "")
         .replace("..\\", "")
-        .replace("..", "");
+        .replace("..", "")
+        // 移除空字节（防止空字节注入）
+        .replace('\0', "");
+    
+    // 移除绝对路径前缀
     if cleaned.starts_with('/') || cleaned.starts_with('\\') {
         cleaned[1..].to_string()
     } else {
@@ -154,50 +163,213 @@ pub fn sanitize_filename(input: &str) -> String {
 /// 清理 URL 中的 JavaScript 协议
 ///
 /// 防止 javascript: 协议注入
+/// 同时处理大小写和空白绕过
 pub fn sanitize_url(input: &str) -> String {
-    let trimmed = input.trim().to_lowercase();
-    if trimmed.starts_with("javascript:") || trimmed.starts_with("data:") || trimmed.starts_with("vbscript:") {
-        String::new()
-    } else {
-        input.to_string()
+    // 移除所有空白字符（防止空白绕过）
+    let trimmed: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+    let lower = trimmed.to_lowercase();
+    
+    // 检查危险协议（支持多种编码绕过）
+    let dangerous_protocols = [
+        "javascript:", "vbscript:", "data:", "file:",
+        "javascript&colon;", "vbscript&colon;", "data&colon;",
+    ];
+    
+    for proto in &dangerous_protocols {
+        if lower.starts_with(proto) {
+            return String::new();
+        }
     }
+    
+    // 检查 HTML 实体编码绕过
+    let decoded = lower
+        .replace("&colon;", ":")
+        .replace("&#58;", ":")
+        .replace("&#x3a;", ":");
+    
+    for proto in &["javascript:", "vbscript:", "data:", "file:"] {
+        if decoded.starts_with(proto) {
+            return String::new();
+        }
+    }
+    
+    input.to_string()
 }
 
 /// 过滤危险 HTML 标签
 ///
 /// 保留安全的 HTML 标签，移除危险的标签和属性
-/// 危险标签：script, iframe, object, embed, form, meta, link
+/// 使用正则表达式进行更严格的匹配，防止绕过
 pub fn filter_html(input: &str) -> String {
+    // 危险标签列表
     let dangerous_tags = [
         "script", "iframe", "object", "embed", "form", "meta", "link",
-        "base", "frame", "frameset", "applet",
+        "base", "frame", "frameset", "applet", "svg", "math",
     ];
+    
     let mut result = input.to_string();
+    
+    // 使用正则表达式移除危险标签（不区分大小写）
     for tag in &dangerous_tags {
-        // 移除开始标签
-        let open_pattern = format!("<{} ", tag);
-        let open_pattern2 = format!("<{}>", tag);
-        let close_pattern = format!("</{}>", tag);
-        result = result.replace(&open_pattern, "&lt;filtered ");
-        result = result.replace(&open_pattern2, "&lt;filtered&gt;");
-        result = result.replace(&close_pattern, "&lt;/filtered&gt;");
-    }
-    // 移除事件处理器属性
-    let event_attrs = [
-        "onclick", "ondblclick", "onmousedown", "onmouseup",
-        "onmouseover", "onmousemove", "onmouseout",
-        "onkeydown", "onkeypress", "onkeyup",
-        "onload", "onerror", "onsubmit", "onreset",
-        "onchange", "onfocus", "onblur",
-    ];
-    for attr in &event_attrs {
-        let patterns = [
-            format!(" {}=", attr),
-            format!(" {} =", attr),
+        // 匹配各种形式的标签：<script>, <SCRIPT>, <ScRiPt>, <script/>, <script >等
+        let patterns = vec![
+            format!(r"(?i)<{}[^>]*>", tag),  // 开始标签
+            format!(r"(?i)</{}[^>]*>", tag),  // 结束标签
         ];
-        for pattern in &patterns {
-            result = result.replace(pattern, " data-filtered=");
+        
+        for pattern in patterns {
+            if let Ok(re) = regex::Regex::new(&pattern) {
+                result = re.replace_all(&result, "").to_string();
+            }
         }
     }
+    
+    // 移除事件处理器属性（不区分大小写）
+    // 匹配 onclick, ONCLICK, OnClick 等各种形式
+    let event_pattern = r#"(?i)\s+on\w+\s*=\s*["'][^"']*["']"#;
+    if let Ok(re) = regex::Regex::new(event_pattern) {
+        result = re.replace_all(&result, "").to_string();
+    }
+    
+    // 移除不带引号的事件处理器
+    let event_pattern2 = r#"(?i)\s+on\w+\s*=\s*[^\s>]+"#;
+    if let Ok(re) = regex::Regex::new(event_pattern2) {
+        result = re.replace_all(&result, "").to_string();
+    }
+    
+    // 移除 javascript: 协议
+    let js_pattern = r#"(?i)javascript\s*:"#;
+    if let Ok(re) = regex::Regex::new(js_pattern) {
+        result = re.replace_all(&result, "blocked:").to_string();
+    }
+    
+    // 移除 data: 协议（可能用于 XSS）
+    let data_pattern = r#"(?i)data\s*:"#;
+    if let Ok(re) = regex::Regex::new(data_pattern) {
+        result = re.replace_all(&result, "blocked:").to_string();
+    }
+    
+    result
+}
+
+/// 深度清理 HTML
+///
+/// 对 HTML 内容进行全面的安全清理
+/// 包括：标签过滤、属性清理、协议检查
+pub fn deep_clean_html(input: &str) -> String {
+    let mut result = input.to_string();
+    
+    // 1. 移除所有 HTML 注释（可能包含恶意内容）
+    if let Ok(re) = regex::Regex::new(r"<!--.*?-->") {
+        result = re.replace_all(&result, "").to_string();
+    }
+    
+    // 2. 移除 CDATA 区块
+    if let Ok(re) = regex::Regex::new(r"<!\[CDATA\[.*?\]\]>") {
+        result = re.replace_all(&result, "").to_string();
+    }
+    
+    // 3. 调用 filter_html 进行标签和属性过滤
+    result = filter_html(&result);
+    
+    // 4. HTML 实体解码后再次检查（防止双重编码绕过）
+    let decoded = decode_html_entities(&result);
+    result = filter_html(&decoded);
+    
+    result
+}
+
+/// 解码 HTML 实体
+///
+/// 将 &amp; &lt; &gt; 等实体转换为对应字符
+/// 支持命名实体、十进制数字实体和十六进制数字实体
+fn decode_html_entities(input: &str) -> String {
+    let mut result = input.to_string();
+    
+    // 命名实体
+    result = result
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&copy;", "©")
+        .replace("&reg;", "®")
+        .replace("&trade;", "™")
+        .replace("&euro;", "€")
+        .replace("&pound;", "£")
+        .replace("&yen;", "¥")
+        .replace("&cent;", "¢")
+        .replace("&mdash;", "—")
+        .replace("&ndash;", "–")
+        .replace("&hellip;", "…")
+        .replace("&lsquo;", "'")
+        .replace("&rsquo;", "'")
+        .replace("&ldquo;", "\u{201C}")
+        .replace("&rdquo;", "\u{201D}")
+        .replace("&bull;", "•")
+        .replace("&middot;", "·")
+        .replace("&deg;", "°")
+        .replace("&plusmn;", "±")
+        .replace("&times;", "×")
+        .replace("&divide;", "÷")
+        .replace("&frac12;", "½")
+        .replace("&frac14;", "¼")
+        .replace("&frac34;", "¾");
+    
+    // 处理十六进制数字实体 &#xHH; 或 &#XHH;
+    let hex_pattern = regex::Regex::new(r"&#x([0-9a-fA-F]+);").unwrap();
+    result = hex_pattern.replace_all(&result, |caps: &regex::Captures| {
+        if let Ok(code) = u32::from_str_radix(&caps[1], 16) {
+            if let Some(ch) = char::from_u32(code) {
+                return ch.to_string();
+            }
+        }
+        caps[0].to_string()
+    }).to_string();
+    
+    // 处理十进制数字实体 &#DD;
+    let dec_pattern = regex::Regex::new(r"&#(\d+);").unwrap();
+    result = dec_pattern.replace_all(&result, |caps: &regex::Captures| {
+        if let Ok(code) = u32::from_str_radix(&caps[1], 10) {
+            if let Some(ch) = char::from_u32(code) {
+                return ch.to_string();
+            }
+        }
+        caps[0].to_string()
+    }).to_string();
+    
+    result
+}
+
+/// 深度 XSS 清理
+///
+/// 对输入进行多轮清理，防止各种编码绕过
+/// 1. URL 解码
+/// 2. HTML 实体解码
+/// 3. Unicode 解码
+/// 4. 多轮清理直到内容稳定
+pub fn deep_xss_clean(input: &str, max_iterations: usize) -> String {
+    let mut result = input.to_string();
+    let mut prev_result = String::new();
+    let mut iterations = 0;
+    
+    // 多轮清理，直到内容不再变化或达到最大迭代次数
+    while result != prev_result && iterations < max_iterations {
+        prev_result = result.clone();
+        
+        // URL 解码
+        result = urlencoding::decode(&result).unwrap_or_default().to_string();
+        
+        // HTML 实体解码
+        result = decode_html_entities(&result);
+        
+        // 过滤危险内容
+        result = deep_clean_html(&result);
+        
+        iterations += 1;
+    }
+    
     result
 }

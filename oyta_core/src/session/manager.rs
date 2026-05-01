@@ -240,15 +240,24 @@ impl SessionManager {
     }
 }
 
-/// 生成随机的 Session ID
+/// 生成密码学安全的随机 Session ID
+///
+/// 使用 rand 0.9.x 库的 OsRng 生成器
+/// 生成 32 字节（256 位）的随机值，编码为 64 字符的十六进制字符串
+///
+/// # 安全性
+/// - 使用密码学安全的随机数生成器（OsRng）
+/// - 256 位熵，足够防止暴力破解
+/// - 不包含时间戳或其他可预测信息
 fn generate_session_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let random: u64 = rand::random();
-    format!("{:x}{:x}", now, random)
+    use rand::TryRngCore;
+    
+    // 生成 32 字节的随机数据（256 位熵）
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.try_fill_bytes(&mut bytes).expect("无法生成安全随机数");
+    
+    // 转换为十六进制字符串（64 字符）
+    hex::encode(bytes)
 }
 
 /// 全局 Session 管理器

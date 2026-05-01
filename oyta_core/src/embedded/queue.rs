@@ -10,6 +10,7 @@
 //! Queue::later(60, 'SendEmailJob', $data, 'emails'); // 延迟60秒
 //! ```
 
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -54,7 +55,7 @@ impl QueueJob {
             max_retries: 3,
             delay_secs: 0,
             created_at: now,
-            id: format!("job_{}_{}", now, rand::random::<u32>()),
+            id: format!("job_{}_{}", now, rand::rng().random::<u32>()),
         }
     }
 

@@ -175,4 +175,99 @@ impl Db {
         let mut manager = connection::get_manager_mut();
         manager.close_all().await;
     }
+
+    /// 开启数据库事务
+    ///
+    /// 对应 ThinkPHP 的 Db::startTrans()
+    /// 返回事务对象，调用者负责提交或回滚
+    ///
+    /// # 返回
+    /// 事务对象
+    ///
+    /// # 示例（PHP 代码风格）
+    /// ```php
+    /// Db::startTrans();
+    /// try {
+    ///     Db::table('users')->insert(['name' => 'test']);
+    ///     Db::commit();
+    /// } catch (\Exception $e) {
+    ///     Db::rollback();
+    /// }
+    /// ```
+    pub async fn begin_transaction() -> Result<sqlx::Transaction<'static, sqlx::MySql>> {
+        executor::begin_transaction().await
+    }
+
+    /// 提交事务
+    ///
+    /// 对应 ThinkPHP 的 Db::commit()
+    /// 提交当前事务，使所有更改永久生效
+    ///
+    /// # 参数
+    /// - `tx`: 要提交的事务对象
+    ///
+    /// # 返回
+    /// 成功返回 Ok(())，失败返回错误
+    pub async fn commit(tx: sqlx::Transaction<'static, sqlx::MySql>) -> Result<()> {
+        executor::commit_transaction(tx).await
+    }
+
+    /// 回滚事务
+    ///
+    /// 对应 ThinkPHP 的 Db::rollback()
+    /// 回滚当前事务，撤销所有未提交的更改
+    ///
+    /// # 参数
+    /// - `tx`: 要回滚的事务对象
+    ///
+    /// # 返回
+    /// 成功返回 Ok(())，失败返回错误
+    pub async fn rollback(tx: sqlx::Transaction<'static, sqlx::MySql>) -> Result<()> {
+        executor::rollback_transaction(tx).await
+    }
+
+    /// 在事务中执行回调
+    ///
+    /// 对应 ThinkPHP 的 Db::transaction($callback)
+    /// 自动管理事务的开启、提交和回滚
+    /// 如果回调执行成功，自动提交事务
+    /// 如果回调抛出异常，自动回滚事务
+    ///
+    /// # 参数
+    /// - `callback`: 要在事务中执行的闭包函数
+    ///
+    /// # 返回
+    /// 回调函数的返回值
+    ///
+    /// # 示例（PHP 代码风格）
+    /// ```php
+    /// Db::transaction(function() {
+    ///     Db::table('users')->insert(['name' => 'test1']);
+    ///     Db::table('users')->insert(['name' => 'test2']);
+    /// });
+    /// ```
+    ///
+    /// # 注意
+    /// 此方法为简化实现，实际的事务回调执行需要解释器支持
+    pub async fn transaction<F, T>(callback: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        // 开启事务
+        let tx = Self::begin_transaction().await?;
+
+        // 执行回调
+        match callback() {
+            Ok(result) => {
+                // 回调成功，提交事务
+                Self::commit(tx).await?;
+                Ok(result)
+            }
+            Err(e) => {
+                // 回调失败，回滚事务
+                Self::rollback(tx).await?;
+                Err(e)
+            }
+        }
+    }
 }

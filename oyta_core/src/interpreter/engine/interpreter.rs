@@ -13,9 +13,22 @@ use crate::interpreter::value::{
     CallableValue, ExecutionResult, ExecutionContext, ObjectInstance, Value,
 };
 use crate::symbol_table::registry::SymbolRegistry;
+use crate::symbol_table::types::{ClassDef, MethodDef};
 
 use super::builtins::create_builtins_map;
 use super::helpers::parse_default_value;
+
+/// 继承链方法查找结果
+///
+/// 包含方法定义和定义该方法的类信息
+struct InheritanceMethodResult {
+    /// 方法定义
+    method_def: MethodDef,
+    /// 定义该方法的类名（完整类名）
+    class_name: String,
+    /// 定义该方法的类文件路径
+    file_path: String,
+}
 
 /// PHP 解释器引擎
 ///
@@ -62,15 +75,94 @@ impl Interpreter {
         format!("closure_{}", id)
     }
 
+    /// 在继承链中查找方法
+    ///
+    /// 递归查找当前类及其所有父类，直到找到目标方法
+    /// 支持多层继承：class A extends B extends C
+    ///
+    /// # 参数
+    /// - `class_name`: 起始类名（完整类名）
+    /// - `method_name`: 要查找的方法名
+    ///
+    /// # 返回
+    /// 找到返回 InheritanceMethodResult，找不到返回 None
+    fn find_method_in_inheritance_chain(
+        &self,
+        class_name: &str,
+        method_name: &str,
+    ) -> Option<InheritanceMethodResult> {
+        // 查找当前类定义
+        let class_def = self.registry.find_class(class_name)?;
+        
+        // 在当前类中查找方法
+        if let Some(method_def) = class_def.find_method(method_name) {
+            return Some(InheritanceMethodResult {
+                method_def: method_def.clone(),
+                class_name: class_def.full_name.clone(),
+                file_path: class_def.file_path.clone(),
+            });
+        }
+        
+        // 当前类没有该方法，查找父类
+        if let Some(parent_class) = &class_def.extends {
+            // 递归查找父类
+            self.find_method_in_inheritance_chain(parent_class, method_name)
+        } else {
+            None
+        }
+    }
+
+    /// 收集继承链中所有类的属性
+    ///
+    /// 从当前类开始，递归收集所有父类的属性
+    /// 子类属性会覆盖父类同名属性
+    ///
+    /// # 参数
+    /// - `class_name`: 起始类名
+    ///
+    /// # 返回
+    /// 属性名到默认值的映射
+    fn collect_properties_from_inheritance_chain(
+        &self,
+        class_name: &str,
+    ) -> HashMap<String, Value> {
+        let mut properties = HashMap::new();
+        self.collect_properties_recursive(class_name, &mut properties);
+        properties
+    }
+
+    /// 递归收集属性（内部辅助函数）
+    fn collect_properties_recursive(
+        &self,
+        class_name: &str,
+        properties: &mut HashMap<String, Value>,
+    ) {
+        if let Some(class_def) = self.registry.find_class(class_name) {
+            // 先收集父类属性（子类会覆盖）
+            if let Some(parent_class) = &class_def.extends {
+                self.collect_properties_recursive(parent_class, properties);
+            }
+            
+            // 收集当前类属性
+            for prop in &class_def.properties {
+                let default_value = match &prop.default_value {
+                    Some(v) => parse_default_value(v),
+                    None => Value::Null,
+                };
+                properties.insert(prop.name.clone(), default_value);
+            }
+        }
+    }
+
     /// 执行控制器方法
     ///
     /// 这是 HTTP 请求处理的核心入口
     /// 流程：
     /// 1. 从符号表查找类定义
-    /// 2. 创建对象实例并初始化属性
+    /// 2. 创建对象实例并初始化属性（包括继承的属性）
     /// 3. 设置执行上下文（$this、命名空间、请求对象）
     /// 4. 绑定方法参数
-    /// 5. 从源文件解析 AST 并执行方法体
+    /// 5. 从源文件解析 AST 并执行方法体（支持继承链查找）
     ///
     /// # 参数
     /// - `class_name`: 类名（含命名空间）
@@ -87,27 +179,24 @@ impl Interpreter {
         args: Vec<Value>,
         request: Option<Value>,
     ) -> Result<Value> {
+        // 验证类存在
         let class_def = self
             .registry
             .find_class(class_name)
             .with_context(|| format!("类不存在: {}", class_name))?;
 
-        let method_def = class_def
-            .find_method(method_name)
+        // 在继承链中查找方法（支持父类方法）
+        let method_result = self
+            .find_method_in_inheritance_chain(class_name, method_name)
             .with_context(|| format!("方法不存在: {}::{}", class_name, method_name))?;
 
-        let mut instance = ObjectInstance {
-            class_name: class_name.to_string(),
-            properties: HashMap::new(),
-        };
+        // 收集继承链中所有属性（父类 + 子类）
+        let properties = self.collect_properties_from_inheritance_chain(class_name);
 
-        for prop in &class_def.properties {
-            let default_value = match &prop.default_value {
-                Some(v) => parse_default_value(v),
-                None => Value::Null,
-            };
-            instance.properties.insert(prop.name.clone(), default_value);
-        }
+        let instance = ObjectInstance {
+            class_name: class_name.to_string(),
+            properties,
+        };
 
         let mut ctx = ExecutionContext::new();
         ctx.this = Some(instance);
@@ -119,7 +208,8 @@ impl Interpreter {
             ctx.set_var("request", req_value);
         }
 
-        for (i, param) in method_def.params.iter().enumerate() {
+        // 绑定方法参数
+        for (i, param) in method_result.method_def.params.iter().enumerate() {
             let param_name = param.name.trim_start_matches('$').to_string();
             let value = if i < args.len() {
                 args[i].clone()
@@ -131,17 +221,14 @@ impl Interpreter {
             ctx.set_var(&param_name, value);
         }
 
-        match self.execute_from_source(&class_def.file_path, class_name, method_name, &mut ctx) {
-            Ok(value) => Ok(value),
-            Err(e) => {
-                Err(e)
-            }
-        }
+        // 执行方法（从定义该方法的类文件中执行）
+        self.execute_from_source(&method_result.file_path, &method_result.class_name, method_name, &mut ctx)
     }
 
     /// 从源文件解析并执行指定方法
     ///
     /// 读取 PHP 源文件，解析为 AST，在类声明中查找目标方法并执行
+    /// 支持继承链：如果在当前类找不到方法，会查找父类
     ///
     /// # 参数
     /// - `file_path`: PHP 源文件路径
@@ -178,6 +265,21 @@ impl Interpreter {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // 当前类文件中找不到方法，尝试在父类中查找
+        if let Some(class_def) = self.registry.find_class(class_name) {
+            if let Some(parent_class) = &class_def.extends {
+                // 递归查找父类
+                if let Some(parent_method) = self.find_method_in_inheritance_chain(parent_class, method_name) {
+                    return self.execute_from_source(
+                        &parent_method.file_path,
+                        &parent_method.class_name,
+                        method_name,
+                        ctx
+                    );
                 }
             }
         }
@@ -232,6 +334,49 @@ impl Interpreter {
             }
 
             return Ok(Value::Null);
+        }
+
+        // 检查是否是方法调用格式 (ClassName::methodName)
+        if name.contains("::") {
+            let parts: Vec<&str> = name.splitn(2, "::").collect();
+            if parts.len() == 2 {
+                let class_name = parts[0];
+                let method_name = parts[1];
+                
+                // 首先检查用户定义的类（支持继承链）
+                if let Some(method_result) = self.find_method_in_inheritance_chain(class_name, method_name) {
+                    let mut ctx = ExecutionContext::new();
+                    for (i, param) in method_result.method_def.params.iter().enumerate() {
+                        let param_name = param.name.trim_start_matches('$').to_string();
+                        let value = if i < args.len() {
+                            args[i].clone()
+                        } else {
+                            Value::Null
+                        };
+                        ctx.set_var(&param_name, value);
+                    }
+                    return self.execute_from_source(
+                        &method_result.file_path,
+                        &method_result.class_name,
+                        method_name,
+                        &mut ctx
+                    );
+                }
+                
+                // 检查内置类注册表
+                let builtin_registry = super::builtin_classes::get_builtin_class_registry();
+                
+                // 尝试调用静态方法
+                if let Some(result) = builtin_registry.call_static_method(class_name, method_name, &args) {
+                    return result;
+                }
+                
+                // 检查门面类注册表
+                let facade_registry = super::builtin_facades::get_facade_class_registry();
+                if let Some(result) = facade_registry.call_static_method(class_name, method_name, &args) {
+                    return result;
+                }
+            }
         }
 
         if args.len() >= 1 {

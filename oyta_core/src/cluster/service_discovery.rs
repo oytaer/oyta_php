@@ -10,6 +10,7 @@
 //! - 负载均衡
 
 use anyhow::Result;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -40,7 +41,7 @@ impl ServiceInstance {
     /// 创建新的服务实例
     pub fn new(name: &str, address: &str, port: u16) -> Self {
         Self {
-            id: format!("{}-{}", name, rand::random::<u32>()),
+            id: format!("{}-{}", name, rand::rng().random::<u32>()),
             name: name.to_string(),
             address: address.to_string(),
             port,

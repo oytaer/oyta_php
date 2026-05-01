@@ -12,6 +12,7 @@
 //! ```
 
 use anyhow::{Context, Result};
+use rand::Rng;
 use std::path::Path;
 
 /// 上传文件信息
@@ -234,6 +235,6 @@ fn generate_unique_name() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let random: u32 = rand::random();
+    let random: u32 = rand::rng().random();
     format!("{:x}{:x}", now, random)
 }

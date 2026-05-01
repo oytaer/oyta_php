@@ -44,6 +44,9 @@ pub fn create_builtins_map() -> HashMap<String, BuiltinFunction> {
     // 注册数组函数
     array::register_array_functions(&mut map);
 
+    // 注册辅助函数
+    helpers::register_helper_functions(&mut map);
+
     // 注册扩展函数
     builtins_ext::register_ext_builtins(&mut map);
     builtins_ext::register_oyta_helpers(&mut map);

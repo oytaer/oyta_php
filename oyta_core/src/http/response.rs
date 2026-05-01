@@ -209,12 +209,74 @@ impl OytaResponse {
     }
 
     /// 设置 Cookie
+    /// 
+    /// # 安全性
+    /// - HttpOnly: 防止 JavaScript 访问 Cookie（防 XSS）
+    /// - SameSite=Lax: 防止跨站请求伪造（防 CSRF）
+    /// - Secure: 仅通过 HTTPS 传输（生产环境应启用）
+    /// - Path=/: 限制 Cookie 在整个网站有效
     pub fn cookie(mut self, name: &str, value: &str, expire: i64) -> Self {
         let cookie = if expire > 0 {
             format!("{}={}; Max-Age={}; Path=/; HttpOnly; SameSite=Lax", name, value, expire)
         } else {
             format!("{}={}; Path=/; HttpOnly; SameSite=Lax", name, value)
         };
+        self.headers.insert("Set-Cookie".to_string(), cookie);
+        self
+    }
+
+    /// 设置安全 Cookie（带完整安全属性）
+    /// 
+    /// # 参数
+    /// - `name`: Cookie 名称
+    /// - `value`: Cookie 值
+    /// - `expire`: 过期时间（秒），0 表示会话 Cookie
+    /// - `secure`: 是否启用 Secure 属性（仅 HTTPS）
+    /// - `same_site`: SameSite 属性（"Strict", "Lax", "None"）
+    /// - `domain`: Cookie 域名（可选）
+    /// - `path`: Cookie 路径
+    pub fn cookie_secure(
+        mut self, 
+        name: &str, 
+        value: &str, 
+        expire: i64, 
+        secure: bool, 
+        same_site: &str, 
+        domain: Option<&str>, 
+        path: &str
+    ) -> Self {
+        let mut cookie_parts = vec![format!("{}={}", name, value)];
+        
+        if expire > 0 {
+            cookie_parts.push(format!("Max-Age={}", expire));
+        }
+        
+        cookie_parts.push(format!("Path={}", path));
+        cookie_parts.push("HttpOnly".to_string());
+        
+        if secure {
+            cookie_parts.push("Secure".to_string());
+        }
+        
+        let same_site_value = match same_site.to_lowercase().as_str() {
+            "strict" => "Strict",
+            "none" => "None",
+            _ => "Lax",
+        };
+        cookie_parts.push(format!("SameSite={}", same_site_value));
+        
+        if let Some(d) = domain {
+            cookie_parts.push(format!("Domain={}", d));
+        }
+        
+        let cookie = cookie_parts.join("; ");
+        self.headers.insert("Set-Cookie".to_string(), cookie);
+        self
+    }
+
+    /// 删除 Cookie（设置过期时间为过去时间）
+    pub fn cookie_delete(mut self, name: &str) -> Self {
+        let cookie = format!("{}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax", name);
         self.headers.insert("Set-Cookie".to_string(), cookie);
         self
     }

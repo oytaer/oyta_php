@@ -10,7 +10,34 @@ use crate::interpreter::value::Value;
 
 use super::helpers::{class_to_table, current_datetime, json_to_value, soft_delete_condition, value_to_json_string};
 use super::paginate::PaginateResult;
+use super::query_ext::ModelQueryBuilder;
 use super::types::{ModelConfig, RelationType};
+
+/// 安全转义SQL标识符
+/// 使用反引号包裹，防止SQL注入和保留字冲突
+#[inline]
+fn escape_id(name: &str) -> String {
+    if name.is_empty() {
+        return "``".to_string();
+    }
+    format!("`{}`", name.replace('`', "``"))
+}
+
+/// 验证标识符是否安全
+/// 只允许字母、数字、下划线和点号
+#[inline]
+fn is_valid_id(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+}
+
+/// 安全转义标识符（带验证）
+fn safe_escape_id(name: &str) -> String {
+    if is_valid_id(name) {
+        escape_id(name)
+    } else {
+        "``".to_string()
+    }
+}
 
 /// 模型实例
 /// 代表数据库中的一行记录
@@ -328,7 +355,7 @@ impl ModelInstance {
             // 构建更新语句
             let sql = format!(
                 "UPDATE {} SET {} = ? WHERE {} = ?",
-                table, self.config.delete_time_field, pk
+                safe_escape_id(&table), safe_escape_id(&self.config.delete_time_field), safe_escape_id(&pk)
             );
 
             // 执行软删除
@@ -340,7 +367,7 @@ impl ModelInstance {
             let pk_value = self.get_key();
 
             // 构建删除语句
-            let sql = format!("DELETE FROM {} WHERE {} = ?", table, pk);
+            let sql = format!("DELETE FROM {} WHERE {} = ?", safe_escape_id(&table), safe_escape_id(&pk));
 
             // 执行物理删除
             executor::execute_with_params(&sql, &[pk_value]).await?;
@@ -353,6 +380,110 @@ impl ModelInstance {
 
     // ==================== 静态查询方法 ====================
 
+    /// 创建查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    ///
+    /// # 示例
+    /// ```php
+    /// User::where('id', 1)->find();
+    /// ```
+    pub fn query(config: ModelConfig) -> ModelQueryBuilder {
+        // 创建并返回查询构建器
+        ModelQueryBuilder::new(config)
+    }
+
+    /// 创建带 WHERE 条件的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `field`: 字段名
+    /// - `args`: 参数（可以是值，或操作符+值）
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    ///
+    /// # 示例
+    /// ```php
+    /// User::where('id', 1)->find();
+    /// User::where('name', 'like', '%think%')->select();
+    /// ```
+    pub fn where_builder(config: ModelConfig, field: &str, operator: &str, value: Value) -> ModelQueryBuilder {
+        // 创建查询构建器并添加条件
+        ModelQueryBuilder::new(config).where_condition(field, operator, value)
+    }
+
+    /// 创建带 WHERE IN 条件的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `field`: 字段名
+    /// - `values`: 值列表
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    pub fn where_in_builder(config: ModelConfig, field: &str, values: Vec<Value>) -> ModelQueryBuilder {
+        // 创建查询构建器并添加 IN 条件
+        ModelQueryBuilder::new(config).where_in(field, values)
+    }
+
+    /// 创建带 ORDER BY 条件的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `field`: 排序字段
+    /// - `direction`: 排序方向
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    pub fn order_builder(config: ModelConfig, field: &str, direction: &str) -> ModelQueryBuilder {
+        // 创建查询构建器并添加排序
+        ModelQueryBuilder::new(config).order(field, direction)
+    }
+
+    /// 创建带 LIMIT 条件的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `limit`: 限制数量
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    pub fn limit_builder(config: ModelConfig, limit: usize) -> ModelQueryBuilder {
+        // 创建查询构建器并添加限制
+        ModelQueryBuilder::new(config).limit(limit)
+    }
+
+    /// 创建带预加载的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `relations`: 关联名称列表
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    pub fn with_builder(config: ModelConfig, relations: Vec<&str>) -> ModelQueryBuilder {
+        // 创建查询构建器并添加预加载
+        ModelQueryBuilder::new(config).with(relations)
+    }
+
+    /// 创建带 JOIN 预加载的查询构建器
+    ///
+    /// # 参数
+    /// - `config`: 模型配置
+    /// - `relations`: 关联名称列表
+    ///
+    /// # 返回值
+    /// 查询构建器实例
+    pub fn with_join_builder(config: ModelConfig, relations: Vec<&str>) -> ModelQueryBuilder {
+        // 创建查询构建器并添加 JOIN 预加载
+        ModelQueryBuilder::new(config).with_join(relations)
+    }
+
     /// 根据主键查找记录
     ///
     /// # 参数
@@ -364,7 +495,7 @@ impl ModelInstance {
     pub async fn find(config: &ModelConfig, id: Value) -> anyhow::Result<Option<Self>> {
         // 构建查询语句
         let table = config.full_table();
-        let mut sql = format!("SELECT * FROM {} WHERE {} = ?", table, config.pk);
+        let mut sql = format!("SELECT * FROM {} WHERE {} = ?", safe_escape_id(&table), safe_escape_id(&config.pk));
 
         // 添加软删除条件
         if config.soft_delete {
@@ -394,7 +525,7 @@ impl ModelInstance {
     pub async fn select(config: &ModelConfig) -> anyhow::Result<Vec<Self>> {
         // 构建查询语句
         let table = config.full_table();
-        let mut sql = format!("SELECT * FROM {}", table);
+        let mut sql = format!("SELECT * FROM {}", safe_escape_id(&table));
 
         // 添加软删除条件
         if config.soft_delete {
@@ -432,7 +563,7 @@ impl ModelInstance {
     ) -> anyhow::Result<Option<Self>> {
         // 构建查询语句
         let table = config.full_table();
-        let mut sql = format!("SELECT * FROM {} WHERE {} {} ?", table, field, operator);
+        let mut sql = format!("SELECT * FROM {} WHERE {} {} ?", safe_escape_id(&table), safe_escape_id(field), operator);
 
         // 添加软删除条件
         if config.soft_delete {
@@ -473,7 +604,7 @@ impl ModelInstance {
     ) -> anyhow::Result<Vec<Self>> {
         // 构建查询语句
         let table = config.full_table();
-        let mut sql = format!("SELECT * FROM {} WHERE {} {} ?", table, field, operator);
+        let mut sql = format!("SELECT * FROM {} WHERE {} {} ?", safe_escape_id(&table), safe_escape_id(field), operator);
 
         // 添加软删除条件
         if config.soft_delete {
@@ -503,7 +634,7 @@ impl ModelInstance {
     pub async fn count(config: &ModelConfig) -> anyhow::Result<i64> {
         // 构建查询语句
         let table = config.full_table();
-        let mut sql = format!("SELECT COUNT(*) as count FROM {}", table);
+        let mut sql = format!("SELECT COUNT(*) as count FROM {}", safe_escape_id(&table));
 
         // 添加软删除条件
         if config.soft_delete {
@@ -542,7 +673,7 @@ impl ModelInstance {
         let table = config.full_table();
 
         // 查询总数
-        let mut count_sql = format!("SELECT COUNT(*) as count FROM {}", table);
+        let mut count_sql = format!("SELECT COUNT(*) as count FROM {}", safe_escape_id(&table));
         if config.soft_delete {
             let condition =
                 soft_delete_condition(&config.soft_delete_default, &config.delete_time_field);
@@ -561,7 +692,7 @@ impl ModelInstance {
 
         // 查询当前页数据
         let offset = (page - 1) * page_size;
-        let mut data_sql = format!("SELECT * FROM {}", table);
+        let mut data_sql = format!("SELECT * FROM {}", safe_escape_id(&table));
         if config.soft_delete {
             let condition =
                 soft_delete_condition(&config.soft_delete_default, &config.delete_time_field);

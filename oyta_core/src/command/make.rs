@@ -7,6 +7,40 @@ use anyhow::Result;
 use crate::env_loader;
 use crate::project;
 
+/// 解析类名，支持 ThinkPHP 8.0 风格的 @ 符号分隔
+///
+/// # 参数
+/// - `name`: 类名（支持格式：`ClassName`、`app/ClassName` 或 `app@ClassName`）
+/// - `default_class`: 默认类名（当只有应用名时使用）
+///
+/// # 返回
+/// 元组 (应用名, 类名)
+///
+/// # 示例
+/// - `User` -> (None, "User")
+/// - `admin/User` -> (Some("admin"), "User")
+/// - `admin@User` -> (Some("admin"), "User")
+/// - `admin` -> (Some("admin"), default_class)
+fn parse_class_name(name: &str, default_class: &str) -> (Option<String>, String) {
+    if name.contains('@') {
+        // ThinkPHP 8.0 风格：app@className 格式
+        // 例如：Blog@User 表示在 Blog 应用下创建 User 类
+        let parts: Vec<&str> = name.split('@').collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).map(|s| s.to_string()).unwrap_or_else(|| default_class.to_string());
+        (Some(app), class)
+    } else if name.contains('/') || name.contains('\\') {
+        // 传统风格：app/className 格式
+        let parts: Vec<&str> = name.split(['/', '\\']).collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).map(|s| s.to_string()).unwrap_or_else(|| default_class.to_string());
+        (Some(app), class)
+    } else {
+        // 单应用模式
+        (None, name.to_string())
+    }
+}
+
 /// 处理 build 命令
 ///
 /// 自动生成应用目录和文件
@@ -66,7 +100,7 @@ pub async fn handle_build(name: &str) -> Result<()> {
 /// 创建控制器
 ///
 /// # 参数
-/// - `name`: 控制器名称（支持格式：`Index` 或 `admin/Index`）
+/// - `name`: 控制器名称（支持格式：`Index`、`admin/Index` 或 `admin@Index`）
 /// - `plain`: 是否创建空控制器
 /// - `api`: 是否创建 API 控制器
 pub async fn handle_make_controller(name: &str, plain: bool, api: bool) -> Result<()> {
@@ -77,13 +111,22 @@ pub async fn handle_make_controller(name: &str, plain: bool, api: bool) -> Resul
     env_loader::loader::load_env(&project)?;
 
     // 解析控制器路径，支持多应用模式
-    // 格式：`Index`（单应用）或 `admin/Index`（多应用）
-    let (app_name, class_name) = if name.contains('/') || name.contains('\\') {
+    // 格式：`Index`（单应用）、`admin/Index`（多应用，使用 / 分隔）或 `admin@Index`（多应用，ThinkPHP 8.0 风格）
+    let (app_name, class_name) = if name.contains('@') {
+        // ThinkPHP 8.0 风格：app@controller 格式
+        // 例如：Blog@User 表示在 Blog 应用下创建 User 控制器
+        let parts: Vec<&str> = name.split('@').collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Index").to_string();
+        (Some(app), class)
+    } else if name.contains('/') || name.contains('\\') {
+        // 传统风格：app/controller 格式
         let parts: Vec<&str> = name.split(['/', '\\']).collect();
         let app = parts[0].to_string();
         let class = parts.get(1).unwrap_or(&"Index").to_string();
         (Some(app), class)
     } else {
+        // 单应用模式
         (None, name.to_string())
     };
     
@@ -116,7 +159,7 @@ pub async fn handle_make_controller(name: &str, plain: bool, api: bool) -> Resul
 /// 创建模型
 ///
 /// # 参数
-/// - `name`: 模型名称
+/// - `name`: 模型名称（支持格式：`User`、`admin/User` 或 `admin@User`）
 pub async fn handle_make_model(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -124,16 +167,40 @@ pub async fn handle_make_model(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析模型路径，支持多应用模式
+    // 格式：`User`（单应用）、`admin/User`（多应用，使用 / 分隔）或 `admin@User`（多应用，ThinkPHP 8.0 风格）
+    let (app_name, class_name) = if name.contains('@') {
+        // ThinkPHP 8.0 风格：app@model 格式
+        let parts: Vec<&str> = name.split('@').collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Model").to_string();
+        (Some(app), class)
+    } else if name.contains('/') || name.contains('\\') {
+        // 传统风格：app/model 格式
+        let parts: Vec<&str> = name.split(['/', '\\']).collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Model").to_string();
+        (Some(app), class)
+    } else {
+        // 单应用模式
+        (None, name.to_string())
+    };
+
     // 创建目录
-    let model_dir = project.root.join("app").join("model");
-    let file_path = model_dir.join(format!("{}.php", name.replace("\\", "/")));
+    let model_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("model")
+    } else {
+        project.root.join("app").join("model")
+    };
+    
+    let file_path = model_dir.join(format!("{}.php", class_name));
     
     if let Some(parent) = file_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
     // 生成模型内容
-    let content = generate_model_content(name);
+    let content = generate_model_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -148,7 +215,7 @@ pub async fn handle_make_model(name: &str) -> Result<()> {
 /// 创建中间件
 ///
 /// # 参数
-/// - `name`: 中间件名称
+/// - `name`: 中间件名称（支持格式：`Auth`、`admin/Auth` 或 `admin@Auth`）
 pub async fn handle_make_middleware(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -156,14 +223,38 @@ pub async fn handle_make_middleware(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析中间件路径，支持多应用模式
+    // 格式：`Auth`（单应用）、`admin/Auth`（多应用，使用 / 分隔）或 `admin@Auth`（多应用，ThinkPHP 8.0 风格）
+    let (app_name, class_name) = if name.contains('@') {
+        // ThinkPHP 8.0 风格：app@middleware 格式
+        let parts: Vec<&str> = name.split('@').collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Middleware").to_string();
+        (Some(app), class)
+    } else if name.contains('/') || name.contains('\\') {
+        // 传统风格：app/middleware 格式
+        let parts: Vec<&str> = name.split(['/', '\\']).collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Middleware").to_string();
+        (Some(app), class)
+    } else {
+        // 单应用模式
+        (None, name.to_string())
+    };
+
     // 创建目录
-    let middleware_dir = project.root.join("app").join("middleware");
-    let file_path = middleware_dir.join(format!("{}.php", name));
+    let middleware_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("middleware")
+    } else {
+        project.root.join("app").join("middleware")
+    };
+    
+    let file_path = middleware_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&middleware_dir)?;
 
     // 生成中间件内容
-    let content = generate_middleware_content(name);
+    let content = generate_middleware_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -178,7 +269,7 @@ pub async fn handle_make_middleware(name: &str) -> Result<()> {
 /// 创建验证器
 ///
 /// # 参数
-/// - `name`: 验证器名称
+/// - `name`: 验证器名称（支持格式：`UserValidate`、`admin/UserValidate` 或 `admin@UserValidate`）
 pub async fn handle_make_validate(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -186,14 +277,38 @@ pub async fn handle_make_validate(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析验证器路径，支持多应用模式
+    // 格式：`UserValidate`（单应用）、`admin/UserValidate`（多应用，使用 / 分隔）或 `admin@UserValidate`（多应用，ThinkPHP 8.0 风格）
+    let (app_name, class_name) = if name.contains('@') {
+        // ThinkPHP 8.0 风格：app@validate 格式
+        let parts: Vec<&str> = name.split('@').collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Validate").to_string();
+        (Some(app), class)
+    } else if name.contains('/') || name.contains('\\') {
+        // 传统风格：app/validate 格式
+        let parts: Vec<&str> = name.split(['/', '\\']).collect();
+        let app = parts[0].to_string();
+        let class = parts.get(1).unwrap_or(&"Validate").to_string();
+        (Some(app), class)
+    } else {
+        // 单应用模式
+        (None, name.to_string())
+    };
+
     // 创建目录
-    let validate_dir = project.root.join("app").join("validate");
-    let file_path = validate_dir.join(format!("{}.php", name));
+    let validate_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("validate")
+    } else {
+        project.root.join("app").join("validate")
+    };
+    
+    let file_path = validate_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&validate_dir)?;
 
     // 生成验证器内容
-    let content = generate_validate_content(name);
+    let content = generate_validate_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -208,7 +323,7 @@ pub async fn handle_make_validate(name: &str) -> Result<()> {
 /// 创建事件类
 ///
 /// # 参数
-/// - `name`: 事件名称
+/// - `name`: 事件名称（支持格式：`UserEvent`、`admin/UserEvent` 或 `admin@UserEvent`）
 pub async fn handle_make_event(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -216,14 +331,22 @@ pub async fn handle_make_event(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析事件路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Event");
+
     // 创建目录
-    let event_dir = project.root.join("app").join("event");
-    let file_path = event_dir.join(format!("{}.php", name));
+    let event_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("event")
+    } else {
+        project.root.join("app").join("event")
+    };
+    
+    let file_path = event_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&event_dir)?;
 
     // 生成事件内容
-    let content = generate_event_content(name);
+    let content = generate_event_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -238,7 +361,7 @@ pub async fn handle_make_event(name: &str) -> Result<()> {
 /// 创建事件监听器
 ///
 /// # 参数
-/// - `name`: 监听器名称
+/// - `name`: 监听器名称（支持格式：`UserListener`、`admin/UserListener` 或 `admin@UserListener`）
 pub async fn handle_make_listener(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -246,14 +369,22 @@ pub async fn handle_make_listener(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析监听器路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Listener");
+
     // 创建目录
-    let listener_dir = project.root.join("app").join("listener");
-    let file_path = listener_dir.join(format!("{}.php", name));
+    let listener_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("listener")
+    } else {
+        project.root.join("app").join("listener")
+    };
+    
+    let file_path = listener_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&listener_dir)?;
 
     // 生成监听器内容
-    let content = generate_listener_content(name);
+    let content = generate_listener_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -268,7 +399,7 @@ pub async fn handle_make_listener(name: &str) -> Result<()> {
 /// 创建事件订阅者
 ///
 /// # 参数
-/// - `name`: 订阅者名称
+/// - `name`: 订阅者名称（支持格式：`UserSubscribe`、`admin/UserSubscribe` 或 `admin@UserSubscribe`）
 pub async fn handle_make_subscribe(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -276,14 +407,22 @@ pub async fn handle_make_subscribe(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析订阅者路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Subscribe");
+
     // 创建目录
-    let subscribe_dir = project.root.join("app").join("subscribe");
-    let file_path = subscribe_dir.join(format!("{}.php", name));
+    let subscribe_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("subscribe")
+    } else {
+        project.root.join("app").join("subscribe")
+    };
+    
+    let file_path = subscribe_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&subscribe_dir)?;
 
     // 生成订阅者内容
-    let content = generate_subscribe_content(name);
+    let content = generate_subscribe_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -298,7 +437,7 @@ pub async fn handle_make_subscribe(name: &str) -> Result<()> {
 /// 创建服务类
 ///
 /// # 参数
-/// - `name`: 服务类名称
+/// - `name`: 服务类名称（支持格式：`UserService`、`admin/UserService` 或 `admin@UserService`）
 pub async fn handle_make_service(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -306,14 +445,22 @@ pub async fn handle_make_service(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析服务类路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Service");
+
     // 创建目录
-    let service_dir = project.root.join("app").join("service");
-    let file_path = service_dir.join(format!("{}.php", name));
+    let service_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("service")
+    } else {
+        project.root.join("app").join("service")
+    };
+    
+    let file_path = service_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&service_dir)?;
 
     // 生成服务类内容
-    let content = generate_service_content(name);
+    let content = generate_service_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -328,7 +475,7 @@ pub async fn handle_make_service(name: &str) -> Result<()> {
 /// 创建自定义命令
 ///
 /// # 参数
-/// - `name`: 命令名称
+/// - `name`: 命令名称（支持格式：`UserCommand`、`admin/UserCommand` 或 `admin@UserCommand`）
 pub async fn handle_make_command(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -336,14 +483,22 @@ pub async fn handle_make_command(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析命令路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Command");
+
     // 创建目录
-    let command_dir = project.root.join("app").join("command");
-    let file_path = command_dir.join(format!("{}.php", name));
+    let command_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("command")
+    } else {
+        project.root.join("app").join("command")
+    };
+    
+    let file_path = command_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&command_dir)?;
 
     // 生成命令内容
-    let content = generate_command_content(name);
+    let content = generate_command_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -358,7 +513,7 @@ pub async fn handle_make_command(name: &str) -> Result<()> {
 /// 创建队列任务类
 ///
 /// # 参数
-/// - `name`: 任务名称
+/// - `name`: 任务名称（支持格式：`UserJob`、`admin/UserJob` 或 `admin@UserJob`）
 pub async fn handle_make_job(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -366,14 +521,22 @@ pub async fn handle_make_job(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析任务路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Job");
+
     // 创建目录
-    let job_dir = project.root.join("app").join("job");
-    let file_path = job_dir.join(format!("{}.php", name));
+    let job_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("job")
+    } else {
+        project.root.join("app").join("job")
+    };
+    
+    let file_path = job_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&job_dir)?;
 
     // 生成队列任务内容
-    let content = generate_job_content(name);
+    let content = generate_job_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -388,7 +551,7 @@ pub async fn handle_make_job(name: &str) -> Result<()> {
 /// 创建定时任务类
 ///
 /// # 参数
-/// - `name`: 任务名称
+/// - `name`: 任务名称（支持格式：`UserTask`、`admin/UserTask` 或 `admin@UserTask`）
 pub async fn handle_make_task(name: &str) -> Result<()> {
     // 检测项目根目录
     let project = project::detector::Project::detect_from_cwd()?;
@@ -396,14 +559,22 @@ pub async fn handle_make_task(name: &str) -> Result<()> {
     // 加载环境变量
     env_loader::loader::load_env(&project)?;
 
+    // 解析任务路径，支持多应用模式和 ThinkPHP 8.0 风格
+    let (app_name, class_name) = parse_class_name(name, "Task");
+
     // 创建目录
-    let task_dir = project.root.join("app").join("task");
-    let file_path = task_dir.join(format!("{}.php", name));
+    let task_dir = if let Some(ref app) = app_name {
+        project.root.join("app").join(app).join("task")
+    } else {
+        project.root.join("app").join("task")
+    };
+    
+    let file_path = task_dir.join(format!("{}.php", class_name));
     
     std::fs::create_dir_all(&task_dir)?;
 
     // 生成定时任务内容
-    let content = generate_task_content(name);
+    let content = generate_task_content(&class_name);
     
     // 写入文件
     std::fs::write(&file_path, content)?;
@@ -416,18 +587,6 @@ pub async fn handle_make_task(name: &str) -> Result<()> {
 // ============================================================================
 // 辅助函数
 // ============================================================================
-
-/// 解析类名，返回命名空间和类名
-fn parse_class_name(name: &str, default_namespace: &str) -> (String, String) {
-    if name.contains('\\') || name.contains('/') {
-        let parts: Vec<&str> = name.split(['\\', '/']).collect();
-        let class_name = parts.last().unwrap_or(&name).to_string();
-        let namespace = parts[..parts.len() - 1].join("\\");
-        (namespace, class_name)
-    } else {
-        (default_namespace.to_string(), name.to_string())
-    }
-}
 
 /// 生成控制器内容
 fn generate_controller_content(name: &str, plain: bool, api: bool, app_name: Option<&str>) -> String {
@@ -442,12 +601,10 @@ fn generate_controller_content(name: &str, plain: bool, api: bool, app_name: Opt
 
 namespace {};
 
-use app\BaseController;
-
 /**
  * {} 控制器
  */
-class {} extends BaseController
+class {}
 {{
     /**
      * 默认方法
@@ -467,12 +624,10 @@ class {} extends BaseController
 
 namespace {};
 
-use app\BaseController;
-
 /**
  * {} 控制器
  */
-class {} extends BaseController
+class {}
 {{
     // 在此添加你的方法
 }}
@@ -482,12 +637,10 @@ class {} extends BaseController
 
 namespace {};
 
-use app\BaseController;
-
 /**
  * {} 控制器
  */
-class {} extends BaseController
+class {}
 {{
     /**
      * 默认方法

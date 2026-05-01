@@ -2,449 +2,61 @@
 //!
 //! 本模块实现 PHP 内置类的注册机制
 //! 包括：DateTime, DateTimeImmutable, DateTimeZone, DateInterval, DatePeriod,
-//! DOMDocument, SimpleXMLElement, GdImage, Phar, PharData 等
+//! DOMDocument, SimpleXMLElement, GdImage, Phar, PharData, Model 等
+//!
+//! # 模块结构
+//! - `builtin_class/types`: 类型定义（BuiltinClassDefinition, BuiltinClassRegistry）
+//! - `builtin_class/datetime`: DateTime 相关类
+//! - `builtin_class/dom`: DOM 相关类
+//! - `builtin_class/phar`: Phar 相关类
+//! - `builtin_class/reflection`: Reflection 相关类
+//! - `builtin_class/request`: Request 类
+//! - `builtin_class/model`: Model 基类
 
-use std::collections::HashMap;
+// 从 builtin_class 子模块导入类型和方法
+pub use super::builtin_class::{
+    BuiltinClassDefinition, BuiltinClassRegistry, BuiltinMethod,
+    // DateTime 方法
+    datetime_format, datetime_modify, datetime_get_timestamp, datetime_set_timestamp,
+    datetime_add, datetime_sub, datetime_diff,
+    datetime_immutable_format, datetime_immutable_get_timestamp, datetime_immutable_set_timestamp,
+    datetimezone_get_name, datetimezone_get_offset,
+    dateinterval_format,
+    // DOM 方法
+    domdocument_save_xml, domdocument_load_xml, domdocument_load_html, domdocument_save_html,
+    domdocument_create_element, domdocument_append_child,
+    simplexmlelement_as_xml, simplexmlelement_xpath, simplexmlelement_children, simplexmlelement_attributes,
+    // Phar 方法
+    phar_get_signature, phar_get_metadata, phar_set_metadata, phar_add_file, phar_add_from_string,
+    phardata_get_signature, phardata_get_metadata,
+    gdimage_get_width, gdimage_get_height, gdimage_crop, gdimage_resize,
+    // Reflection 方法
+    reflection_class_get_name, reflection_class_get_methods, reflection_class_get_properties,
+    reflection_class_has_method, reflection_class_has_property, reflection_class_new_instance,
+    reflection_method_get_name, reflection_method_invoke,
+    reflection_property_get_name, reflection_property_get_value, reflection_property_set_value,
+    reflection_parameter_get_name, reflection_parameter_get_type, reflection_parameter_is_optional,
+    reflection_function_get_name, reflection_function_invoke,
+    // Request 方法
+    request_get, request_post, request_param, request_input,
+    request_method, request_is_method, request_ip, request_header, request_all,
+    request_is_ajax, request_is_json, request_is_mobile, request_is_cli, request_is_cgi,
+    // Model 方法
+    model_find, model_find_or_fail, model_first, model_all, model_create, model_count, model_where, model_paginate,
+    model_instance_save, model_instance_delete, model_instance_to_array, model_instance_to_json,
+};
 
-use crate::interpreter::value::{ObjectInstance, Value};
+use std::sync::OnceLock;
 
-/// 内置类方法类型
+use crate::interpreter::value::Value;
+
+/// 全局内置类注册表
 ///
-/// 定义内置类方法的函数签名
-pub type BuiltinMethod = fn(&ObjectInstance, &[Value]) -> anyhow::Result<Value>;
-
-/// 内置类定义
-///
-/// 包含类名、方法列表和属性列表
-#[derive(Debug, Clone)]
-pub struct BuiltinClassDefinition {
-    /// 类名
-    pub name: String,
-    /// 是否为最终类
-    pub is_final: bool,
-    /// 是否为抽象类
-    pub is_abstract: bool,
-    /// 是否为接口
-    pub is_interface: bool,
-    /// 是否为 trait
-    pub is_trait: bool,
-    /// 父类名
-    pub parent_class: Option<String>,
-    /// 实现的接口列表
-    pub interfaces: Vec<String>,
-    /// 使用的 trait 列表
-    pub traits: Vec<String>,
-    /// 类常量
-    pub constants: HashMap<String, Value>,
-    /// 静态属性
-    pub static_properties: HashMap<String, Value>,
-    /// 静态方法
-    pub static_methods: HashMap<String, BuiltinMethod>,
-    /// 实例方法
-    pub methods: HashMap<String, BuiltinMethod>,
-    /// 默认属性值
-    pub default_properties: HashMap<String, Value>,
+/// 使用懒加载初始化
+pub fn get_builtin_class_registry() -> &'static BuiltinClassRegistry {
+    static REGISTRY: OnceLock<BuiltinClassRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(create_builtin_class_registry)
 }
-
-impl BuiltinClassDefinition {
-    /// 创建新的内置类定义
-    ///
-    /// # 参数
-    /// - `name`: 类名
-    ///
-    /// # 返回
-    /// 新的内置类定义实例
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            is_final: false,
-            is_abstract: false,
-            is_interface: false,
-            is_trait: false,
-            parent_class: None,
-            interfaces: Vec::new(),
-            traits: Vec::new(),
-            constants: HashMap::new(),
-            static_properties: HashMap::new(),
-            static_methods: HashMap::new(),
-            methods: HashMap::new(),
-            default_properties: HashMap::new(),
-        }
-    }
-    
-    /// 设置为最终类
-    pub fn set_final(mut self) -> Self {
-        self.is_final = true;
-        self
-    }
-    
-    /// 设置为抽象类
-    pub fn set_abstract(mut self) -> Self {
-        self.is_abstract = true;
-        self
-    }
-    
-    /// 设置父类
-    ///
-    /// # 参数
-    /// - `parent`: 父类名
-    pub fn set_parent(mut self, parent: &str) -> Self {
-        self.parent_class = Some(parent.to_string());
-        self
-    }
-    
-    /// 添加接口
-    ///
-    /// # 参数
-    /// - `interface`: 接口名
-    pub fn add_interface(mut self, interface: &str) -> Self {
-        self.interfaces.push(interface.to_string());
-        self
-    }
-    
-    /// 添加常量
-    ///
-    /// # 参数
-    /// - `name`: 常量名
-    /// - `value`: 常量值
-    pub fn add_constant(mut self, name: &str, value: Value) -> Self {
-        self.constants.insert(name.to_string(), value);
-        self
-    }
-    
-    /// 添加静态属性
-    ///
-    /// # 参数
-    /// - `name`: 属性名
-    /// - `value`: 属性值
-    pub fn add_static_property(mut self, name: &str, value: Value) -> Self {
-        self.static_properties.insert(name.to_string(), value);
-        self
-    }
-    
-    /// 添加静态方法
-    ///
-    /// # 参数
-    /// - `name`: 方法名
-    /// - `method`: 方法实现
-    pub fn add_static_method(mut self, name: &str, method: BuiltinMethod) -> Self {
-        self.static_methods.insert(name.to_string(), method);
-        self
-    }
-    
-    /// 添加实例方法
-    ///
-    /// # 参数
-    /// - `name`: 方法名
-    /// - `method`: 方法实现
-    pub fn add_method(mut self, name: &str, method: BuiltinMethod) -> Self {
-        self.methods.insert(name.to_string(), method);
-        self
-    }
-    
-    /// 添加默认属性
-    ///
-    /// # 参数
-    /// - `name`: 属性名
-    /// - `value`: 默认值
-    pub fn add_default_property(mut self, name: &str, value: Value) -> Self {
-        self.default_properties.insert(name.to_string(), value);
-        self
-    }
-}
-
-/// 内置类注册表
-///
-/// 存储所有内置类的定义
-pub struct BuiltinClassRegistry {
-    /// 类定义映射
-    classes: HashMap<String, BuiltinClassDefinition>,
-}
-
-impl BuiltinClassRegistry {
-    /// 创建新的内置类注册表
-    pub fn new() -> Self {
-        Self {
-            classes: HashMap::new(),
-        }
-    }
-    
-    /// 注册内置类
-    ///
-    /// # 参数
-    /// - `definition`: 类定义
-    pub fn register(&mut self, definition: BuiltinClassDefinition) {
-        self.classes.insert(definition.name.clone(), definition);
-    }
-    
-    /// 检查类是否存在
-    ///
-    /// # 参数
-    /// - `name`: 类名
-    ///
-    /// # 返回
-    /// 类是否存在
-    pub fn has_class(&self, name: &str) -> bool {
-        self.classes.contains_key(name)
-    }
-    
-    /// 获取类定义
-    ///
-    /// # 参数
-    /// - `name`: 类名
-    ///
-    /// # 返回
-    /// 类定义引用
-    pub fn get_class(&self, name: &str) -> Option<&BuiltinClassDefinition> {
-        self.classes.get(name)
-    }
-    
-    /// 获取所有类名
-    ///
-    /// # 返回
-    /// 类名列表
-    pub fn get_class_names(&self) -> Vec<&String> {
-        self.classes.keys().collect()
-    }
-    
-    /// 创建类实例
-    ///
-    /// # 参数
-    /// - `name`: 类名
-    ///
-    /// # 返回
-    /// 新的对象实例
-    pub fn create_instance(&self, name: &str) -> Option<ObjectInstance> {
-        let definition = self.classes.get(name)?;
-        
-        // 创建属性映射
-        let mut properties = HashMap::new();
-        for (prop_name, prop_value) in &definition.default_properties {
-            properties.insert(prop_name.clone(), prop_value.clone());
-        }
-        
-        Some(ObjectInstance {
-            class_name: definition.name.clone(),
-            properties,
-        })
-    }
-    
-    /// 调用实例方法
-    ///
-    /// # 参数
-    /// - `instance`: 对象实例
-    /// - `method_name`: 方法名
-    /// - `args`: 参数列表
-    ///
-    /// # 返回
-    /// 方法返回值
-    pub fn call_method(
-        &self,
-        instance: &ObjectInstance,
-        method_name: &str,
-        args: &[Value],
-    ) -> Option<anyhow::Result<Value>> {
-        let definition = self.classes.get(&instance.class_name)?;
-        let method = definition.methods.get(method_name)?;
-        Some(method(instance, args))
-    }
-    
-    /// 调用静态方法
-    ///
-    /// # 参数
-    /// - `class_name`: 类名
-    /// - `method_name`: 方法名
-    /// - `args`: 参数列表
-    ///
-    /// # 返回
-    /// 方法返回值
-    pub fn call_static_method(
-        &self,
-        class_name: &str,
-        method_name: &str,
-        args: &[Value],
-    ) -> Option<anyhow::Result<Value>> {
-        let definition = self.classes.get(class_name)?;
-        let method = definition.static_methods.get(method_name)?;
-        
-        // 创建临时实例用于调用
-        let temp_instance = ObjectInstance {
-            class_name: class_name.to_string(),
-            properties: HashMap::new(),
-        };
-        
-        Some(method(&temp_instance, args))
-    }
-}
-
-impl Default for BuiltinClassRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ============================================================================
-// 内置类方法实现
-// ============================================================================
-
-/// DateTime::format 方法实现
-fn datetime_format(instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    // 获取格式字符串
-    let format = args.first()
-        .and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None })
-        .unwrap_or("Y-m-d H:i:s");
-    
-    // 从实例属性获取时间戳
-    let timestamp = instance.properties.get("timestamp")
-        .and_then(|v| if let Value::Int(i) = v { Some(*i) } else { None })
-        .unwrap_or(0);
-    
-    // 创建日期时间
-    let dt = chrono::DateTime::from_timestamp(timestamp, 0)
-        .unwrap_or_else(|| chrono::Utc::now());
-    
-    // 格式化
-    let result = format
-        .replace('Y', &dt.format("%Y").to_string())
-        .replace('m', &dt.format("%m").to_string())
-        .replace('d', &dt.format("%d").to_string())
-        .replace('H', &dt.format("%H").to_string())
-        .replace('i', &dt.format("%M").to_string())
-        .replace('s', &dt.format("%S").to_string());
-    
-    Ok(Value::String(result))
-}
-
-/// DateTime::modify 方法实现
-fn datetime_modify(instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    // 获取修改字符串
-    let _modifier = args.first()
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_default();
-    
-    // 简化实现：返回当前实例的克隆
-    Ok(Value::Object(instance.clone()))
-}
-
-/// DateTime::getTimestamp 方法实现
-fn datetime_get_timestamp(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let timestamp = instance.properties.get("timestamp")
-        .and_then(|v| if let Value::Int(i) = v { Some(*i) } else { None })
-        .unwrap_or(0);
-    
-    Ok(Value::Int(timestamp))
-}
-
-/// DateTime::setTimestamp 方法实现
-fn datetime_set_timestamp(instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    let timestamp = args.first()
-        .and_then(|v| if let Value::Int(i) = v { Some(*i) } else { None })
-        .unwrap_or(0);
-    
-    // 创建新实例
-    let mut new_instance = instance.clone();
-    new_instance.properties.insert("timestamp".to_string(), Value::Int(timestamp));
-    
-    Ok(Value::Object(new_instance))
-}
-
-/// DateTimeImmutable::format 方法实现（与 DateTime 相同）
-fn datetime_immutable_format(instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    datetime_format(instance, args)
-}
-
-/// DateTimeZone::getName 方法实现
-fn datetimezone_get_name(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let name = instance.properties.get("name")
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_else(|| "UTC".to_string());
-    
-    Ok(Value::String(name))
-}
-
-/// DOMDocument::saveXML 方法实现
-fn domdocument_save_xml(_instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    // 简化实现：返回空 XML
-    Ok(Value::String("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".to_string()))
-}
-
-/// DOMDocument::loadXML 方法实现
-fn domdocument_load_xml(instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    // 获取 XML 字符串
-    let _xml = args.first()
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_default();
-    
-    // 简化实现：返回当前实例
-    Ok(Value::Object(instance.clone()))
-}
-
-/// SimpleXMLElement::asXML 方法实现
-fn simplexmlelement_as_xml(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let xml = instance.properties.get("xml")
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_default();
-    
-    Ok(Value::String(xml))
-}
-
-/// SimpleXMLElement::xpath 方法实现
-fn simplexmlelement_xpath(_instance: &ObjectInstance, args: &[Value]) -> anyhow::Result<Value> {
-    // 获取 XPath 表达式
-    let _xpath = args.first()
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_default();
-    
-    // 简化实现：返回空数组
-    Ok(Value::IndexedArray(vec![]))
-}
-
-/// GdImage::getWidth 方法实现
-fn gdimage_get_width(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let width = instance.properties.get("width")
-        .and_then(|v| if let Value::Int(i) = v { Some(*i) } else { None })
-        .unwrap_or(0);
-    
-    Ok(Value::Int(width))
-}
-
-/// GdImage::getHeight 方法实现
-fn gdimage_get_height(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let height = instance.properties.get("height")
-        .and_then(|v| if let Value::Int(i) = v { Some(*i) } else { None })
-        .unwrap_or(0);
-    
-    Ok(Value::Int(height))
-}
-
-/// Phar::getSignature 方法实现
-fn phar_get_signature(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let has_signature = instance.properties.get("hasSignature")
-        .and_then(|v| if let Value::Bool(b) = v { Some(*b) } else { None })
-        .unwrap_or(false);
-    
-    if has_signature {
-        Ok(Value::IndexedArray(vec![
-            Value::String("hash".to_string()),
-            Value::String(String::new()),
-        ]))
-    } else {
-        Ok(Value::Bool(false))
-    }
-}
-
-/// Phar::getVersion 方法实现
-fn phar_get_version(instance: &ObjectInstance, _args: &[Value]) -> anyhow::Result<Value> {
-    let version = instance.properties.get("version")
-        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
-        .unwrap_or_else(|| "1.0.0".to_string());
-    
-    Ok(Value::String(version))
-}
-
-// ============================================================================
-// 注册所有内置类
-// ============================================================================
 
 /// 创建并填充内置类注册表
 ///
@@ -468,6 +80,9 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_method("modify", datetime_modify)
         .add_method("getTimestamp", datetime_get_timestamp)
         .add_method("setTimestamp", datetime_set_timestamp)
+        .add_method("add", datetime_add)
+        .add_method("sub", datetime_sub)
+        .add_method("diff", datetime_diff)
         .add_constant("ATOM", Value::String("Y-m-d\\TH:i:sP".to_string()))
         .add_constant("COOKIE", Value::String("l, d-M-Y H:i:s T".to_string()))
         .add_constant("ISO8601", Value::String("Y-m-d\\TH:i:sO".to_string()))
@@ -484,13 +99,16 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("timestamp", Value::Int(0))
         .add_default_property("ustime", Value::Int(0))
         .add_default_property("timezone", Value::String("UTC".to_string()))
-        .add_method("format", datetime_immutable_format);
+        .add_method("format", datetime_immutable_format)
+        .add_method("getTimestamp", datetime_immutable_get_timestamp)
+        .add_method("setTimestamp", datetime_immutable_set_timestamp);
     registry.register(datetime_immutable_class);
     
     // 注册 DateTimeZone 类
     let datetimezone_class = BuiltinClassDefinition::new("DateTimeZone")
         .add_default_property("name", Value::String("UTC".to_string()))
         .add_method("getName", datetimezone_get_name)
+        .add_method("getOffset", datetimezone_get_offset)
         .add_constant("AFRICA", Value::Int(1))
         .add_constant("AMERICA", Value::Int(2))
         .add_constant("ANTARCTICA", Value::Int(4))
@@ -515,7 +133,8 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("i", Value::Int(0))
         .add_default_property("s", Value::Int(0))
         .add_default_property("invert", Value::Bool(false))
-        .add_default_property("days", Value::Bool(false));
+        .add_default_property("days", Value::Bool(false))
+        .add_method("format", dateinterval_format);
     registry.register(dateinterval_class);
     
     // 注册 DatePeriod 类
@@ -536,7 +155,11 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("preserveWhiteSpace", Value::Bool(true))
         .add_default_property("validateOnParse", Value::Bool(false))
         .add_method("saveXML", domdocument_save_xml)
-        .add_method("loadXML", domdocument_load_xml);
+        .add_method("loadXML", domdocument_load_xml)
+        .add_method("loadHTML", domdocument_load_html)
+        .add_method("saveHTML", domdocument_save_html)
+        .add_method("createElement", domdocument_create_element)
+        .add_method("appendChild", domdocument_append_child);
     registry.register(domdocument_class);
     
     // 注册 SimpleXMLElement 类
@@ -548,7 +171,9 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("attributes", Value::IndexedArray(vec![]))
         .add_default_property("children", Value::IndexedArray(vec![]))
         .add_method("asXML", simplexmlelement_as_xml)
-        .add_method("xpath", simplexmlelement_xpath);
+        .add_method("xpath", simplexmlelement_xpath)
+        .add_method("children", simplexmlelement_children)
+        .add_method("attributes", simplexmlelement_attributes);
     registry.register(simplexmlelement_class);
     
     // 注册 GdImage 类
@@ -560,7 +185,9 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("colors", Value::IndexedArray(vec![]))
         .add_default_property("transparent", Value::Int(-1))
         .add_method("getWidth", gdimage_get_width)
-        .add_method("getHeight", gdimage_get_height);
+        .add_method("getHeight", gdimage_get_height)
+        .add_method("crop", gdimage_crop)
+        .add_method("resize", gdimage_resize);
     registry.register(gdimage_class);
     
     // 注册 Phar 类
@@ -574,7 +201,10 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("isWritable", Value::Bool(false))
         .add_default_property("entries", Value::IndexedArray(vec![]))
         .add_method("getSignature", phar_get_signature)
-        .add_method("getVersion", phar_get_version)
+        .add_method("getMetadata", phar_get_metadata)
+        .add_method("setMetadata", phar_set_metadata)
+        .add_method("addFile", phar_add_file)
+        .add_method("addFromString", phar_add_from_string)
         .add_constant("MD5", Value::Int(1))
         .add_constant("SHA1", Value::Int(2))
         .add_constant("SHA256", Value::Int(3))
@@ -586,7 +216,9 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
     let phardata_class = BuiltinClassDefinition::new("PharData")
         .add_default_property("path", Value::String(String::new()))
         .add_default_property("alias", Value::String(String::new()))
-        .add_default_property("entries", Value::IndexedArray(vec![]));
+        .add_default_property("entries", Value::IndexedArray(vec![]))
+        .add_method("getSignature", phardata_get_signature)
+        .add_method("getMetadata", phardata_get_metadata);
     registry.register(phardata_class);
     
     // 注册 PharException 类
@@ -615,7 +247,13 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("isFinal", Value::Bool(false))
         .add_default_property("isAbstract", Value::Bool(false))
         .add_default_property("isInterface", Value::Bool(false))
-        .add_default_property("isTrait", Value::Bool(false));
+        .add_default_property("isTrait", Value::Bool(false))
+        .add_method("getName", reflection_class_get_name)
+        .add_method("getMethods", reflection_class_get_methods)
+        .add_method("getProperties", reflection_class_get_properties)
+        .add_method("hasMethod", reflection_class_has_method)
+        .add_method("hasProperty", reflection_class_has_property)
+        .add_method("newInstance", reflection_class_new_instance);
     registry.register(reflectionclass_class);
     
     // 注册 ReflectionMethod 类
@@ -627,7 +265,9 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("isProtected", Value::Bool(false))
         .add_default_property("isStatic", Value::Bool(false))
         .add_default_property("isFinal", Value::Bool(false))
-        .add_default_property("isAbstract", Value::Bool(false));
+        .add_default_property("isAbstract", Value::Bool(false))
+        .add_method("getName", reflection_method_get_name)
+        .add_method("invoke", reflection_method_invoke);
     registry.register(reflectionmethod_class);
     
     // 注册 ReflectionProperty 类
@@ -638,7 +278,10 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("isPrivate", Value::Bool(false))
         .add_default_property("isProtected", Value::Bool(false))
         .add_default_property("isStatic", Value::Bool(false))
-        .add_default_property("isDefault", Value::Bool(true));
+        .add_default_property("isDefault", Value::Bool(true))
+        .add_method("getName", reflection_property_get_name)
+        .add_method("getValue", reflection_property_get_value)
+        .add_method("setValue", reflection_property_set_value);
     registry.register(reflectionproperty_class);
     
     // 注册 ReflectionParameter 类
@@ -646,31 +289,82 @@ pub fn create_builtin_class_registry() -> BuiltinClassRegistry {
         .add_default_property("name", Value::String(String::new()))
         .add_default_property("position", Value::Int(0))
         .add_default_property("isOptional", Value::Bool(false))
-        .add_default_property("isDefaultValueAvailable", Value::Bool(false))
+        .add_default_property("isPassedByReference", Value::Bool(false))
+        .add_default_property("isVariadic", Value::Bool(false))
         .add_default_property("defaultValue", Value::Null)
-        .add_default_property("type", Value::String(String::new()))
-        .add_default_property("allowsNull", Value::Bool(true));
+        .add_method("getName", reflection_parameter_get_name)
+        .add_method("getType", reflection_parameter_get_type)
+        .add_method("isOptional", reflection_parameter_is_optional);
     registry.register(reflectionparameter_class);
     
     // 注册 ReflectionFunction 类
     let reflectionfunction_class = BuiltinClassDefinition::new("ReflectionFunction")
         .add_default_property("name", Value::String(String::new()))
-        .add_default_property("isInternal", Value::Bool(false))
-        .add_default_property("isUserDefined", Value::Bool(true))
         .add_default_property("isClosure", Value::Bool(false))
         .add_default_property("isDeprecated", Value::Bool(false))
         .add_default_property("isGenerator", Value::Bool(false))
-        .add_default_property("isVariadic", Value::Bool(false));
+        .add_default_property("isInternal", Value::Bool(false))
+        .add_default_property("isUserDefined", Value::Bool(true))
+        .add_default_property("isVariadic", Value::Bool(false))
+        .add_method("getName", reflection_function_get_name)
+        .add_method("invoke", reflection_function_invoke);
     registry.register(reflectionfunction_class);
     
+    // 注册 Request 类
+    let request_class = BuiltinClassDefinition::new("Request")
+        .add_default_property("method", Value::String("GET".to_string()))
+        .add_default_property("path", Value::String(String::new()))
+        .add_default_property("host", Value::String(String::new()))
+        .add_default_property("ip", Value::String("127.0.0.1".to_string()))
+        .add_default_property("headers", Value::AssociativeArray(vec![]))
+        .add_default_property("params", Value::AssociativeArray(vec![]))
+        .add_method("get", request_get)
+        .add_method("post", request_post)
+        .add_method("param", request_param)
+        .add_method("input", request_input)
+        .add_method("method", request_method)
+        .add_method("isMethod", request_is_method)
+        .add_method("ip", request_ip)
+        .add_method("header", request_header)
+        .add_method("all", request_all)
+        .add_method("isAjax", request_is_ajax)
+        .add_method("isJson", request_is_json)
+        .add_method("isMobile", request_is_mobile)
+        .add_method("isCli", request_is_cli)
+        .add_method("isCgi", request_is_cgi);
+    registry.register(request_class);
+    
+    // 注册 Model 基类 - ThinkPHP 8.0 ORM 模型基类
+    // PHP 代码可以通过 class User extends Model 来继承此基类
+    let model_class = BuiltinClassDefinition::new("Model")
+        // 默认属性
+        .add_default_property("table", Value::String(String::new()))
+        .add_default_property("pk", Value::String("id".to_string()))
+        .add_default_property("connection", Value::String(String::new()))
+        .add_default_property("autoWriteTimestamp", Value::Bool(true))
+        .add_default_property("createTime", Value::String("create_time".to_string()))
+        .add_default_property("updateTime", Value::String("update_time".to_string()))
+        .add_default_property("deleteTime", Value::String("delete_time".to_string()))
+        .add_default_property("defaultSoftDelete", Value::Null)
+        .add_default_property("exists", Value::Bool(false))
+        .add_default_property("data", Value::AssociativeArray(vec![]))
+        .add_default_property("origin", Value::AssociativeArray(vec![]))
+        .add_default_property("relation", Value::AssociativeArray(vec![]))
+        // 静态方法 - 查询
+        .add_static_method("find", model_find)
+        .add_static_method("findOrFail", model_find_or_fail)
+        .add_static_method("first", model_first)
+        .add_static_method("all", model_all)
+        .add_static_method("create", model_create)
+        .add_static_method("count", model_count)
+        .add_static_method("where", model_where)
+        .add_static_method("paginate", model_paginate)
+        // 实例方法
+        .add_method("save", model_instance_save)
+        .add_method("delete", model_instance_delete)
+        .add_method("toArray", model_instance_to_array)
+        .add_method("toJson", model_instance_to_json);
+    registry.register(model_class);
+    
     registry
-}
-
-/// 全局内置类注册表
-///
-/// 使用懒加载初始化
-pub fn get_builtin_class_registry() -> &'static BuiltinClassRegistry {
-    use std::sync::OnceLock;
-    static REGISTRY: OnceLock<BuiltinClassRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(create_builtin_class_registry)
 }

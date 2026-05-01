@@ -33,7 +33,7 @@ pub enum PharSignatureType {
 
 impl Default for PharSignatureType {
     fn default() -> Self {
-        PharSignatureType::Sha1
+        PharSignatureType::Sha256
     }
 }
 

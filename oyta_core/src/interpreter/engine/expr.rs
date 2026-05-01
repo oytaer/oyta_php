@@ -201,6 +201,13 @@ impl Interpreter {
 
                 match &obj_val {
                     Value::Object(obj) => {
+                        // 首先尝试内置类注册表
+                        let builtin_registry = super::builtin_classes::get_builtin_class_registry();
+                        if let Some(result) = builtin_registry.call_method(obj, &method_name, &args) {
+                            return result;
+                        }
+                        
+                        // 最后尝试普通函数调用
                         self.call_function(&format!("{}::{}", obj.class_name, method_name), args)
                     }
                     Value::String(s) => self.call_string_method(s, &method_name, args),
@@ -399,11 +406,13 @@ impl Interpreter {
             ExprKind::New(new_expr) => {
                 let class_name = expr_to_name(new_expr.class);
                 let resolved = ctx.resolve_class_name(&class_name);
-                let mut instance = ObjectInstance {
-                    class_name: resolved.clone(),
-                    properties: HashMap::new(),
-                };
+                
+                // 首先检查用户定义的类
                 if let Some(class_def) = self.registry.find_class(&resolved) {
+                    let mut instance = ObjectInstance {
+                        class_name: resolved.clone(),
+                        properties: HashMap::new(),
+                    };
                     for prop in &class_def.properties {
                         let default_value = match &prop.default_value {
                             Some(v) => parse_default_value(v),
@@ -411,7 +420,20 @@ impl Interpreter {
                         };
                         instance.properties.insert(prop.name.clone(), default_value);
                     }
+                    return Ok(Value::Object(instance));
                 }
+                
+                // 然后检查内置类注册表
+                let builtin_registry = super::builtin_classes::get_builtin_class_registry();
+                if let Some(instance) = builtin_registry.create_instance(&resolved) {
+                    return Ok(Value::Object(instance));
+                }
+                
+                // 如果都找不到，创建一个空实例
+                let instance = ObjectInstance {
+                    class_name: resolved.clone(),
+                    properties: HashMap::new(),
+                };
                 Ok(Value::Object(instance))
             }
 

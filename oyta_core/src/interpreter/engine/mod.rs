@@ -8,8 +8,10 @@
 //! - method_call: 字符串和数组的链式方法调用
 //! - builtins: 90+ 内置 PHP 函数实现
 //! - builtins_ext: 扩展内置函数（DateTime、mbstring、GD、XML、Phar、eval等）
-//! - builtin_classes: 内置类注册机制（DateTime、DOMDocument、GdImage、Phar等）
-//! - builtin_facades: 门面类注册机制（Cache、Db、Session、Config、Log等）
+//! - builtin_class: 内置类子模块（DateTime、DOMDocument、GdImage、Phar等）
+//! - builtin_classes: 内置类注册模块
+//! - builtin_facade: 门面类子模块（Cache、Db、Session、Config、Log等）
+//! - builtin_facades: 门面类注册模块
 //! - binary_op: 二元运算符求值
 //! - helpers: 通用辅助函数
 
@@ -17,7 +19,9 @@ pub mod assign;
 pub mod binary_op;
 pub mod builtins;
 pub mod builtins_ext;
+pub mod builtin_class;
 pub mod builtin_classes;
+pub mod builtin_facade;
 pub mod builtin_facades;
 pub mod expr;
 pub mod helpers;

@@ -1129,82 +1129,6 @@ REDIS_DATABASE=0
 "#;
     std::fs::write(project_root.join("composer.json"), composer_content)?;
 
-    // 创建 BaseController 基类控制器
-    let base_controller_content = r#"<?php
-
-namespace app;
-
-/**
- * 控制器基类
- * 所有控制器都应继承此类
- */
-abstract class BaseController
-{
-    /**
-     * 当前请求对象
-     * @var object
-     */
-    protected $request;
-
-    /**
-     * 构造函数
-     */
-    public function __construct()
-    {
-        // 初始化请求对象
-        $this->request = request();
-    }
-
-    /**
-     * 获取请求对象
-     * @return object
-     */
-    protected function request()
-    {
-        return $this->request;
-    }
-
-    /**
-     * 返回 JSON 响应
-     * @param mixed $data 数据
-     * @param int $code 状态码
-     * @param string $msg 消息
-     * @return string
-     */
-    protected function json($data = [], int $code = 200, string $msg = 'success'): string
-    {
-        return json_encode([
-            'code' => $code,
-            'msg' => $msg,
-            'data' => $data,
-        ], JSON_UNESCAPED_UNICODE);
-    }
-
-    /**
-     * 返回成功响应
-     * @param mixed $data 数据
-     * @param string $msg 消息
-     * @return string
-     */
-    protected function success($data = [], string $msg = 'success'): string
-    {
-        return $this->json($data, 200, $msg);
-    }
-
-    /**
-     * 返回错误响应
-     * @param string $msg 消息
-     * @param int $code 状态码
-     * @return string
-     */
-    protected function error(string $msg = 'error', int $code = 400): string
-    {
-        return $this->json([], $code, $msg);
-    }
-}
-"#;
-    std::fs::write(project_root.join("app").join("BaseController.php"), base_controller_content)?;
-
     // 创建默认控制器
     let controller_content = if let Some(name) = app_name {
         // 多应用模式
@@ -1212,34 +1136,30 @@ abstract class BaseController
 
 namespace app\{}\controller;
 
-use app\BaseController;
-
 /**
  * 默认控制器
  */
-class Index extends BaseController
+class Index
 {{
     /**
      * 首页
      */
     public function index()
     {{
-        return 'Hello, OYTAPHP!';
+        return 'Hello, {}!';
     }}
 }}
-"#, name)
+"#, name, name)
     } else {
         // 单应用模式
         r#"<?php
 
 namespace app\controller;
 
-use app\BaseController;
-
 /**
  * 默认控制器
  */
-class Index extends BaseController
+class Index
 {
     /**
      * 首页

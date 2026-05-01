@@ -16,6 +16,19 @@
 //! - `oyta composer require vendor/package` - 添加依赖
 //! - `oyta composer remove vendor/package` - 移除依赖
 //! - `oyta composer dump-autoload` - 重新生成自动加载
+//!
+//! # 内部实现说明
+//! - autoload: 自动加载生成器（内部实现）
+//! - downloader: 包下载器（内部实现）
+//! - extractor: 包解压器（内部实现）
+//! - lock: 锁文件处理（内部实现）
+//! - packagist: Packagist API 客户端（内部实现）
+//! - parser: JSON 解析器（内部实现）
+//! - resolver: 依赖解析器（内部实现）
+//! - manager: 管理器（对外暴露）
+
+// 允许内部实现未使用警告
+#![allow(dead_code)]
 
 pub mod autoload;
 pub mod downloader;

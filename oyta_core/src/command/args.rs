@@ -423,6 +423,101 @@ pub enum Commands {
     },
 
     // ========================================================================
+    // 数据库迁移命令
+    // ========================================================================
+
+    /// 执行数据库迁移（对应 php think migrate:run）
+    #[command(name = "migrate:run")]
+    MigrateRun {
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+    },
+
+    /// 回滚数据库迁移（对应 php think migrate:rollback）
+    #[command(name = "migrate:rollback")]
+    MigrateRollback {
+        /// 指定回滚的批次号
+        #[arg(short, long)]
+        batch: Option<i32>,
+        /// 指定数据库连接
+        #[arg(long)]
+        database: Option<String>,
+    },
+
+    /// 查看迁移状态（对应 php think migrate:status）
+    #[command(name = "migrate:status")]
+    MigrateStatus {
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+    },
+
+    /// 创建新的迁移文件（对应 php think migrate:make）
+    #[command(name = "migrate:make")]
+    MigrateMake {
+        /// 迁移名称
+        name: String,
+        /// 指定表名
+        #[arg(short, long)]
+        table: Option<String>,
+        /// 是否为创建表的迁移
+        #[arg(long, default_value_t = false)]
+        create: bool,
+    },
+
+    /// 删除所有表并重新迁移（对应 php think migrate:fresh）
+    #[command(name = "migrate:fresh")]
+    MigrateFresh {
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+        /// 是否运行数据填充
+        #[arg(long, default_value_t = false)]
+        seed: bool,
+    },
+
+    /// 回滚所有迁移（对应 php think migrate:reset）
+    #[command(name = "migrate:reset")]
+    MigrateReset {
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+    },
+
+    /// 重置并重新运行迁移（对应 php think migrate:refresh）
+    #[command(name = "migrate:refresh")]
+    MigrateRefresh {
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+        /// 是否运行数据填充
+        #[arg(long, default_value_t = false)]
+        seed: bool,
+    },
+
+    /// 运行数据填充（对应 php think db:seed）
+    #[command(name = "db:seed")]
+    DbSeed {
+        /// 指定填充类名
+        #[arg(short, long)]
+        class: Option<String>,
+        /// 指定数据库连接
+        #[arg(long)]
+        database: Option<String>,
+    },
+
+    /// 查看数据表结构（对应 php think db:table）
+    #[command(name = "db:table")]
+    DbTable {
+        /// 表名
+        table: String,
+        /// 指定数据库连接
+        #[arg(short, long)]
+        database: Option<String>,
+    },
+
+    // ========================================================================
     // 信息查看命令
     // ========================================================================
 
@@ -496,6 +591,15 @@ pub fn command_description(cmd: &Commands) -> String {
         Commands::ComposerDiagnose => "诊断 Composer 问题".to_string(),
         Commands::ServiceDiscover => "自动注册扩展包系统服务".to_string(),
         Commands::VendorPublish { .. } => "发布扩展配置文件".to_string(),
+        Commands::MigrateRun { .. } => "执行数据库迁移".to_string(),
+        Commands::MigrateRollback { .. } => "回滚数据库迁移".to_string(),
+        Commands::MigrateStatus { .. } => "查看迁移状态".to_string(),
+        Commands::MigrateMake { name, .. } => format!("创建迁移文件: {}", name),
+        Commands::MigrateFresh { .. } => "删除所有表并重新迁移".to_string(),
+        Commands::MigrateReset { .. } => "回滚所有迁移".to_string(),
+        Commands::MigrateRefresh { .. } => "重置并重新运行迁移".to_string(),
+        Commands::DbSeed { .. } => "运行数据填充".to_string(),
+        Commands::DbTable { table, .. } => format!("查看数据表结构: {}", table),
         Commands::Version => "查看版本".to_string(),
         Commands::List => "列出所有命令".to_string(),
     }

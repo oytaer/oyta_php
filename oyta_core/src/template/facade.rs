@@ -462,8 +462,10 @@ impl Default for ViewBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_view_assign() {
         View::clear();
         View::assign("title", serde_json::Value::String("测试标题".to_string()));
@@ -476,6 +478,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_view_assign_batch() {
         View::clear();
 
@@ -489,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_view_remove() {
         View::clear();
         View::assign("test", serde_json::Value::String("test".to_string()));

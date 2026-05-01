@@ -183,3 +183,247 @@ pub fn domain() -> String {
 pub fn full_url() -> String {
     format!("http://{}{}", domain(), "")
 }
+
+// ==================== Request 助手函数 ====================
+
+/// 获取当前请求对象
+/// 对应 ThinkPHP 的 request() 函数
+pub fn request() -> Option<crate::http::request::Request> {
+    crate::http::RequestFacade::get_request()
+}
+
+/// 获取输入变量
+/// 对应 ThinkPHP 的 input() 函数
+/// 
+/// # 用法示例
+/// - input("name") - 获取 param 变量
+/// - input("get.name") - 获取 GET 变量
+/// - input("post.name") - 获取 POST 变量
+/// - input("get.id/d") - 获取 GET 变量并转为整数
+pub fn input(key: &str) -> serde_json::Value {
+    input_default(key, serde_json::Value::Null)
+}
+
+/// 获取输入变量（带默认值）
+pub fn input_default(key: &str, default: serde_json::Value) -> serde_json::Value {
+    // 解析 key，格式为 "method.name" 或 "name"
+    let (method, name) = if key.contains('.') {
+        let parts: Vec<&str> = key.splitn(2, '.').collect();
+        (parts[0], parts[1])
+    } else {
+        ("param", key)
+    };
+
+    // 检查是否为判断变量是否存在
+    if name.starts_with('?') {
+        let actual_name = &name[1..];
+        let exists = match method {
+            "get" => crate::http::RequestFacade::has(actual_name, "get"),
+            "post" => crate::http::RequestFacade::has(actual_name, "post"),
+            "put" => crate::http::RequestFacade::has(actual_name, "put"),
+            "delete" => crate::http::RequestFacade::has(actual_name, "delete"),
+            "session" => crate::http::RequestFacade::has(actual_name, "session"),
+            "cookie" => crate::http::RequestFacade::has(actual_name, "cookie"),
+            "server" => crate::http::RequestFacade::has(actual_name, "server"),
+            "env" => crate::http::RequestFacade::has(actual_name, "env"),
+            "file" => crate::http::RequestFacade::has(actual_name, "file"),
+            "route" => crate::http::RequestFacade::has(actual_name, "route"),
+            "middleware" => crate::http::RequestFacade::has(actual_name, "middleware"),
+            "request" => crate::http::RequestFacade::has(actual_name, "request"),
+            _ => crate::http::RequestFacade::has(actual_name, "param"),
+        };
+        return serde_json::Value::Bool(exists);
+    }
+
+    // 检查是否为获取全部变量
+    if name.is_empty() || name == "." {
+        let all_value: serde_json::Value = match method {
+            "get" => {
+                let m = crate::http::RequestFacade::get_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "post" => {
+                let m = crate::http::RequestFacade::post_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "put" => {
+                let m = crate::http::RequestFacade::put_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "delete" => {
+                let m = crate::http::RequestFacade::delete_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "session" => {
+                let m = crate::http::RequestFacade::session_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "cookie" => {
+                let m = crate::http::RequestFacade::cookie_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "server" => {
+                let m = crate::http::RequestFacade::server_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "env" => {
+                let m = crate::http::RequestFacade::env_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "route" => {
+                let m = crate::http::RequestFacade::route_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            "middleware" => {
+                let m = crate::http::RequestFacade::middleware_all();
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+            _ => {
+                let m = crate::http::RequestFacade::param_all(true);
+                serde_json::to_value(m).unwrap_or(serde_json::Value::Object(Default::default()))
+            },
+        };
+        return all_value;
+    }
+
+    // 获取单个变量
+    match method {
+        "get" => crate::http::RequestFacade::get_with_modifier(name),
+        "post" => crate::http::RequestFacade::post_with_modifier(name),
+        "put" => crate::http::RequestFacade::put(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "delete" => crate::http::RequestFacade::delete(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "session" => crate::http::RequestFacade::session(name).unwrap_or(default),
+        "cookie" => crate::http::RequestFacade::cookie(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "server" => crate::http::RequestFacade::server(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "env" => crate::http::RequestFacade::env(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "route" => crate::http::RequestFacade::route(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        "middleware" => crate::http::RequestFacade::middleware(name).unwrap_or(default),
+        "request" => crate::http::RequestFacade::request(name).map(|v| serde_json::Value::String(v)).unwrap_or(default),
+        _ => crate::http::RequestFacade::param_with_modifier(name),
+    }
+}
+
+/// 获取 PARAM 变量
+pub fn param(key: &str) -> Option<String> {
+    crate::http::RequestFacade::param(key)
+}
+
+/// 获取 PARAM 变量（带默认值）
+pub fn param_default(key: &str, default: &str) -> String {
+    crate::http::RequestFacade::param_default(key, default)
+}
+
+/// 获取 GET 变量
+pub fn get_input(key: &str) -> Option<String> {
+    crate::http::RequestFacade::get(key)
+}
+
+/// 获取 GET 变量（带默认值）
+pub fn get_input_default(key: &str, default: &str) -> String {
+    crate::http::RequestFacade::get_default(key, default)
+}
+
+/// 获取 POST 变量
+pub fn post_input(key: &str) -> Option<String> {
+    crate::http::RequestFacade::post(key)
+}
+
+/// 获取 POST 变量（带默认值）
+pub fn post_input_default(key: &str, default: &str) -> String {
+    crate::http::RequestFacade::post_default(key, default)
+}
+
+/// 获取 Cookie 变量
+pub fn cookie_input(key: &str) -> Option<String> {
+    crate::http::RequestFacade::cookie(key)
+}
+
+/// 获取 Cookie 变量（带默认值）
+pub fn cookie_input_default(key: &str, default: &str) -> String {
+    crate::http::RequestFacade::cookie_default(key, default)
+}
+
+/// 获取 Session 变量
+pub fn session_input(key: &str) -> Option<serde_json::Value> {
+    crate::http::RequestFacade::session(key)
+}
+
+/// 获取 Session 变量（带默认值）
+pub fn session_input_default(key: &str, default: serde_json::Value) -> serde_json::Value {
+    crate::http::RequestFacade::session_default(key, default)
+}
+
+/// 判断变量是否设置
+pub fn input_has(key: &str, method: &str) -> bool {
+    crate::http::RequestFacade::has(key, method)
+}
+
+/// 获取部分变量
+pub fn input_only(keys: &[&str], method: &str) -> std::collections::HashMap<String, String> {
+    crate::http::RequestFacade::only(keys, method)
+}
+
+/// 排除某些变量后获取
+pub fn input_except(keys: &[&str], method: &str) -> std::collections::HashMap<String, String> {
+    crate::http::RequestFacade::except(keys, method)
+}
+
+/// 获取请求头
+pub fn header(key: &str) -> Option<String> {
+    crate::http::RequestFacade::header(key)
+}
+
+/// 获取请求头（带默认值）
+pub fn header_default(key: &str, default: &str) -> String {
+    crate::http::RequestFacade::header_default(key, default)
+}
+
+/// 判断是否为 AJAX 请求
+pub fn is_ajax() -> bool {
+    crate::http::RequestFacade::is_ajax()
+}
+
+/// 判断是否为 POST 请求
+pub fn is_post() -> bool {
+    crate::http::RequestFacade::is_post()
+}
+
+/// 判断是否为 GET 请求
+pub fn is_get() -> bool {
+    crate::http::RequestFacade::is_get()
+}
+
+/// 判断是否为 JSON 请求
+pub fn is_json() -> bool {
+    crate::http::RequestFacade::is_json()
+}
+
+/// 判断是否为手机访问
+pub fn is_mobile() -> bool {
+    crate::http::RequestFacade::is_mobile()
+}
+
+/// 获取当前请求类型
+pub fn method(original: bool) -> String {
+    crate::http::RequestFacade::method(original)
+}
+
+/// 获取当前 URL
+pub fn current_url(complete: bool) -> String {
+    crate::http::RequestFacade::url(complete)
+}
+
+/// 获取当前域名
+pub fn current_domain() -> String {
+    crate::http::RequestFacade::domain()
+}
+
+/// 获取当前路径
+pub fn current_path() -> String {
+    crate::http::RequestFacade::path()
+}
+
+/// 获取客户端 IP（从请求对象获取）
+pub fn request_ip() -> String {
+    crate::http::RequestFacade::ip()
+}

@@ -53,10 +53,68 @@ impl LocalStorage {
     ///
     /// # 返回
     /// 完整物理路径
+    /// 
+    /// # 安全性
+    /// 防止路径遍历攻击，确保路径在根目录内
     fn full_path_internal(&self, path: &str) -> PathBuf {
+        // URL解码路径（防止URL编码绕过）
+        let decoded_path = urlencoding::decode(path).unwrap_or_default().to_string();
+        
         // 移除开头的斜杠
-        let normalized_path = path.trim_start_matches('/');
-        self.root_path.join(normalized_path)
+        let normalized_path = decoded_path.trim_start_matches('/');
+        
+        // 安全检查：防止路径遍历攻击
+        // 检查是否包含 .. 或其他危险路径组件
+        let dangerous_patterns = ["../", "..\\", ".."];
+        for pattern in &dangerous_patterns {
+            if normalized_path.contains(pattern) {
+                // 如果检测到路径遍历尝试，返回根目录
+                return self.root_path.clone();
+            }
+        }
+        
+        // 检查路径组件是否包含空字节（防止空字节注入）
+        if normalized_path.contains('\0') {
+            return self.root_path.clone();
+        }
+        
+        // 构建完整路径
+        let full_path = self.root_path.join(normalized_path);
+        
+        // 规范化路径并验证是否在根目录内
+        match full_path.canonicalize() {
+            Ok(canonical) => {
+                // 验证规范化后的路径是否仍在根目录内
+                if canonical.starts_with(&self.root_path) {
+                    canonical
+                } else {
+                    // 路径遍历尝试，返回根目录
+                    self.root_path.clone()
+                }
+            }
+            Err(_) => {
+                // 文件不存在时，使用未规范化的路径
+                // 但仍需验证不会逃逸根目录
+                full_path
+            }
+        }
+    }
+    
+    /// 验证路径是否安全
+    ///
+    /// # 参数
+    /// - `path`: 要验证的路径
+    ///
+    /// # 返回
+    /// 路径是否安全
+    fn is_path_safe(&self, path: &str) -> bool {
+        let decoded = urlencoding::decode(path).unwrap_or_default();
+        let path_str = decoded.trim_start_matches('/');
+        
+        // 检查危险模式
+        !path_str.contains("..") 
+            && !path_str.contains('\0')
+            && !path_str.starts_with('/')
     }
     
     /// 确保父目录存在

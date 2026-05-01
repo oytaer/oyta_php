@@ -437,6 +437,281 @@ pub enum ExceptionHandlingResult {
     Replace(ExceptionInfo),
 }
 
+// ============================================================================
+// 数据库异常类型
+// ============================================================================
+
+/// 模型未找到异常
+///
+/// 当使用 findOrFail、firstOrFail 等方法查询数据时
+/// 如果未找到匹配的记录，则抛出此异常
+///
+/// 对应 ThinkPHP 8.0 的 \think\exception\ModelNotFoundException
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelNotFoundException {
+    /// 模型类名
+    pub model: String,
+    /// 查询条件
+    pub query: Option<String>,
+    /// 异常消息
+    pub message: String,
+    /// 错误代码
+    pub code: i32,
+    /// 发生异常的文件路径
+    pub file: String,
+    /// 发生异常的行号
+    pub line: usize,
+}
+
+impl ModelNotFoundException {
+    /// 创建新的模型未找到异常
+    ///
+    /// # 参数
+    /// - `model`: 模型类名
+    /// - `query`: 查询条件描述
+    ///
+    /// # 返回
+    /// 新的 ModelNotFoundException 实例
+    pub fn new(model: &str, query: Option<&str>) -> Self {
+        let message = match query {
+            Some(q) => format!("模型 [{}] 未找到，查询条件: {}", model, q),
+            None => format!("模型 [{}] 未找到", model),
+        };
+
+        Self {
+            model: model.to_string(),
+            query: query.map(|s| s.to_string()),
+            message,
+            code: 0,
+            file: String::new(),
+            line: 0,
+        }
+    }
+
+    /// 设置文件和行号
+    pub fn with_location(mut self, file: &str, line: usize) -> Self {
+        self.file = file.to_string();
+        self.line = line;
+        self
+    }
+
+    /// 设置错误代码
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// 转换为 ExceptionInfo
+    pub fn to_exception_info(&self) -> ExceptionInfo {
+        ExceptionInfo::new(
+            "ModelNotFoundException".to_string(),
+            self.message.clone(),
+            self.file.clone(),
+            self.line,
+        )
+        .with_code(self.code)
+    }
+}
+
+impl fmt::Display for ModelNotFoundException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ModelNotFoundException: {}", self.message)
+    }
+}
+
+impl std::error::Error for ModelNotFoundException {}
+
+/// 数据库查询异常
+///
+/// 当执行 SQL 查询时发生错误，则抛出此异常
+/// 包含详细的错误信息和 SQL 语句
+///
+/// 对应 ThinkPHP 8.0 的 \think\exception\DbException
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryException {
+    /// SQL 语句
+    pub sql: String,
+    /// 错误消息
+    pub message: String,
+    /// 错误代码
+    pub code: i32,
+    /// 数据库错误码
+    pub sql_state: Option<String>,
+    /// 发生异常的文件路径
+    pub file: String,
+    /// 发生异常的行号
+    pub line: usize,
+    /// 绑定参数
+    pub bindings: Vec<String>,
+}
+
+impl QueryException {
+    /// 创建新的查询异常
+    ///
+    /// # 参数
+    /// - `sql`: 执行的 SQL 语句
+    /// - `message`: 错误消息
+    ///
+    /// # 返回
+    /// 新的 QueryException 实例
+    pub fn new(sql: &str, message: &str) -> Self {
+        Self {
+            sql: sql.to_string(),
+            message: message.to_string(),
+            code: 0,
+            sql_state: None,
+            file: String::new(),
+            line: 0,
+            bindings: Vec::new(),
+        }
+    }
+
+    /// 设置 SQL 状态码
+    pub fn with_sql_state(mut self, sql_state: &str) -> Self {
+        self.sql_state = Some(sql_state.to_string());
+        self
+    }
+
+    /// 设置错误代码
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// 设置文件和行号
+    pub fn with_location(mut self, file: &str, line: usize) -> Self {
+        self.file = file.to_string();
+        self.line = line;
+        self
+    }
+
+    /// 设置绑定参数
+    pub fn with_bindings(mut self, bindings: Vec<String>) -> Self {
+        self.bindings = bindings;
+        self
+    }
+
+    /// 转换为 ExceptionInfo
+    pub fn to_exception_info(&self) -> ExceptionInfo {
+        let mut full_message = format!("SQL 执行错误: {}\nSQL: {}", self.message, self.sql);
+
+        if !self.bindings.is_empty() {
+            full_message.push_str(&format!("\n绑定参数: [{}]", self.bindings.join(", ")));
+        }
+
+        if let Some(ref sql_state) = self.sql_state {
+            full_message.push_str(&format!("\nSQLSTATE: {}", sql_state));
+        }
+
+        ExceptionInfo::new(
+            "QueryException".to_string(),
+            full_message,
+            self.file.clone(),
+            self.line,
+        )
+        .with_code(self.code)
+    }
+}
+
+impl fmt::Display for QueryException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryException: {} (SQL: {})", self.message, self.sql)
+    }
+}
+
+impl std::error::Error for QueryException {}
+
+/// 事务异常
+///
+/// 当事务操作失败时抛出此异常
+/// 包含事务操作的详细信息和失败原因
+///
+/// 对应 ThinkPHP 8.0 的事务相关异常
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransactionException {
+    /// 操作类型（begin, commit, rollback）
+    pub operation: String,
+    /// 错误消息
+    pub message: String,
+    /// 错误代码
+    pub code: i32,
+    /// 发生异常的文件路径
+    pub file: String,
+    /// 发生异常的行号
+    pub line: usize,
+    /// 连接名称
+    pub connection: Option<String>,
+}
+
+impl TransactionException {
+    /// 创建新的事务异常
+    ///
+    /// # 参数
+    /// - `operation`: 操作类型（begin, commit, rollback）
+    /// - `message`: 错误消息
+    ///
+    /// # 返回
+    /// 新的 TransactionException 实例
+    pub fn new(operation: &str, message: &str) -> Self {
+        Self {
+            operation: operation.to_string(),
+            message: message.to_string(),
+            code: 0,
+            file: String::new(),
+            line: 0,
+            connection: None,
+        }
+    }
+
+    /// 设置连接名称
+    pub fn with_connection(mut self, connection: &str) -> Self {
+        self.connection = Some(connection.to_string());
+        self
+    }
+
+    /// 设置错误代码
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// 设置文件和行号
+    pub fn with_location(mut self, file: &str, line: usize) -> Self {
+        self.file = file.to_string();
+        self.line = line;
+        self
+    }
+
+    /// 转换为 ExceptionInfo
+    pub fn to_exception_info(&self) -> ExceptionInfo {
+        let mut full_message = format!("事务操作失败 [{}]: {}", self.operation, self.message);
+
+        if let Some(ref connection) = self.connection {
+            full_message.push_str(&format!("\n连接: {}", connection));
+        }
+
+        ExceptionInfo::new(
+            "TransactionException".to_string(),
+            full_message,
+            self.file.clone(),
+            self.line,
+        )
+        .with_code(self.code)
+    }
+}
+
+impl fmt::Display for TransactionException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TransactionException: {} (操作: {})",
+            self.message, self.operation
+        )
+    }
+}
+
+impl std::error::Error for TransactionException {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

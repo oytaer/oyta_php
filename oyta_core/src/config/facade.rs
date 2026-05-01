@@ -6,6 +6,7 @@
 
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 use super::store::ConfigStore;
 use crate::symbol_table::types::ConfigValue;
@@ -14,6 +15,12 @@ use crate::symbol_table::types::ConfigValue;
 /// 使用 RwLock 保证线程安全
 static CONFIG_STORE: Lazy<RwLock<ConfigStore>> = Lazy::new(|| {
     RwLock::new(ConfigStore::new())
+});
+
+/// 全局环境变量存储实例
+/// 用于存储运行时设置的环境变量（线程安全）
+static ENV_STORE: Lazy<RwLock<HashMap<String, String>>> = Lazy::new(|| {
+    RwLock::new(HashMap::new())
 });
 
 /// Config 门面
@@ -124,43 +131,70 @@ impl Config {
 
 /// Env 门面
 /// 提供环境变量访问，与 ThinkPHP 8.0 的 Env 门面用法一致
-/// 优先从 .env 文件加载的变量中获取，然后从系统环境变量中获取
+/// 优先从运行时存储获取，然后从 .env 文件加载的变量中获取，最后从系统环境变量中获取
 pub struct Env;
 
 impl Env {
     /// 获取环境变量值
-    /// 优先从进程环境变量中获取（dotenvy 已将 .env 加载到进程环境）
+    /// 优先级：运行时存储 > 进程环境变量
     ///
     /// # 参数
     /// - `key`: 环境变量名
     /// - `default`: 默认值
     pub fn get(key: &str, default: &str) -> String {
+        // 首先检查运行时存储
+        {
+            let store = ENV_STORE.read();
+            if let Some(value) = store.get(key) {
+                return value.clone();
+            }
+        }
+        // 然后检查进程环境变量
         std::env::var(key).unwrap_or_else(|_| default.to_string())
     }
 
     /// 获取环境变量布尔值
     pub fn get_bool(key: &str, default: bool) -> bool {
-        let value = std::env::var(key).unwrap_or_else(|_| default.to_string());
+        let value = Self::get(key, &default.to_string());
         matches!(value.to_lowercase().as_str(), "true" | "1" | "yes")
     }
 
     /// 获取环境变量整数值
     pub fn get_int(key: &str, default: i64) -> i64 {
-        std::env::var(key)
-            .ok()
-            .and_then(|v| v.parse().ok())
+        Self::get(key, &default.to_string())
+            .parse()
             .unwrap_or(default)
     }
 
     /// 检查环境变量是否存在
     pub fn has(key: &str) -> bool {
+        // 检查运行时存储
+        {
+            let store = ENV_STORE.read();
+            if store.contains_key(key) {
+                return true;
+            }
+        }
+        // 检查进程环境变量
         std::env::var(key).is_ok()
     }
 
-    /// 设置环境变量
+    /// 设置环境变量（线程安全）
+    /// 存储在内部 HashMap 中，不修改进程环境变量
     pub fn set(key: &str, value: &str) {
-        // SAFETY: 在单线程初始化阶段调用是安全的
-        // 多线程环境下应避免调用此方法
-        unsafe { std::env::set_var(key, value); }
+        let mut store = ENV_STORE.write();
+        store.insert(key.to_string(), value.to_string());
+    }
+
+    /// 删除运行时设置的环境变量
+    pub fn remove(key: &str) -> bool {
+        let mut store = ENV_STORE.write();
+        store.remove(key).is_some()
+    }
+
+    /// 清空所有运行时设置的环境变量
+    pub fn clear() {
+        let mut store = ENV_STORE.write();
+        store.clear();
     }
 }

@@ -11,12 +11,16 @@
 //! - 连接池管理
 //! - 健康检查与故障转移
 //! - 数据库迁移
+//! - 高级查询构建器
+//! - CRUD 操作
+//! - ORM 扩展功能
+//! - 查询缓存、SQL 监听、断线重连
 
+// 原有模块
 pub mod cluster;
 pub mod connection;
 pub mod executor;
 pub mod facade;
-pub mod migration;
 pub mod model;
 pub mod pool_trait;
 pub mod postgres_pool;
@@ -25,5 +29,44 @@ pub mod read_write_split;
 pub mod relations;
 pub mod sqlite_pool;
 
+// 新增模块
+pub mod advanced;
+pub mod crud;
+pub mod migration;
+pub mod orm;
+pub mod query;
+
 // 导出 Db 门面
 pub use facade::Db;
+
+// 导出常用类型
+pub use query::{
+    AggregateBuilder, AggregateExecutor, AggregateType, CountBuilder, DatabaseType,
+    Field, FieldBuilder, HavingBuilder, JoinBuilder, JoinType, LockBuilder, LockType,
+    OrderBuilder, PaginateBuilder, PaginateResult, SubQueryBuilder, UnionBuilder, UnionType,
+    WhereBuilder, WhereType,
+};
+
+pub use crud::{
+    DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder, UpdateValue,
+    InsertResult, UpdateResult, DeleteResult, QueryResult,
+};
+
+pub use orm::{
+    AutoTimestampConfig, TimestampManager, TimestampType,
+    SoftDeleteConfig, SoftDeleteManager, SoftDeleteType,
+    JsonFieldOperator, JsonPath,
+    EventContext, EventManager, EventType,
+};
+
+pub use migration::{
+    Migration, MigrationManager, MigrationStatus,
+    ColumnDefinition, ForeignKeyDefinition, IndexDefinition, SchemaBuilder, TableDefinition,
+};
+
+pub use advanced::{
+    QueryCache, QueryCacheConfig,
+    QueryListener, QueryLogEntry,
+    DatabaseLogger, LogLevel,
+    ReconnectConfig, ReconnectManager,
+};

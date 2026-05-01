@@ -177,6 +177,59 @@ pub fn register_ext_builtins(map: &mut HashMap<String, BuiltinFunction>) {
     
     // 注册 eval 函数
     eval::register_eval_functions(map);
+    
+    // 注册 Request 助手函数
+    map.insert("request".to_string(), builtin_request);
+    map.insert("input".to_string(), builtin_input);
+    
+    // 注册变量处理函数
+    map.insert("isset".to_string(), builtin_isset);
+    map.insert("unset".to_string(), builtin_unset);
+    map.insert("gettype".to_string(), builtin_gettype);
+    map.insert("settype".to_string(), builtin_settype);
+}
+
+/// request — 获取当前请求对象
+pub fn builtin_request(_args: &[crate::interpreter::value::Value]) -> anyhow::Result<crate::interpreter::value::Value> {
+    use crate::interpreter::value::{ObjectInstance, Value};
+    Ok(Value::Object(ObjectInstance {
+        class_name: "Request".to_string(),
+        properties: std::collections::HashMap::new(),
+    }))
+}
+
+/// input — 获取输入变量
+pub fn builtin_input(args: &[crate::interpreter::value::Value]) -> anyhow::Result<crate::interpreter::value::Value> {
+    use crate::interpreter::value::Value;
+    let key = args.first().map(|v| v.to_string_value()).unwrap_or_default();
+    let default = args.get(1).cloned().unwrap_or(Value::Null);
+    let (method, name) = if key.contains('.') {
+        let parts: Vec<&str> = key.splitn(2, '.').collect();
+        (parts[0], parts[1])
+    } else {
+        ("param", key.as_str())
+    };
+    let result = match method {
+        "get" => crate::http::RequestFacade::get(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "post" => crate::http::RequestFacade::post(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "put" => crate::http::RequestFacade::put(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "delete" => crate::http::RequestFacade::delete(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "session" => match crate::http::RequestFacade::session(name) {
+            Some(v) => match v {
+                serde_json::Value::String(s) => Value::String(s),
+                serde_json::Value::Number(n) => Value::Int(n.as_i64().unwrap_or(0)),
+                serde_json::Value::Bool(b) => Value::Bool(b),
+                _ => Value::String(v.to_string()),
+            },
+            None => default.clone(),
+        },
+        "cookie" => crate::http::RequestFacade::cookie(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "server" => crate::http::RequestFacade::server(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "env" => crate::http::RequestFacade::env(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        "route" => crate::http::RequestFacade::route(name).map(Value::String).unwrap_or_else(|| default.clone()),
+        _ => crate::http::RequestFacade::param(name).map(Value::String).unwrap_or(default),
+    };
+    Ok(result)
 }
 
 /// isset — 检测变量是否已设置并且非 null

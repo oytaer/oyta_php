@@ -10,6 +10,7 @@
 //! - 可重入锁
 
 use anyhow::{Context, Result};
+use rand::Rng;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -84,7 +85,7 @@ impl DistributedLock {
 
     /// 生成锁值
     fn generate_value() -> String {
-        format!("{}:{}", std::process::id(), rand::random::<u64>())
+        format!("{}:{}", std::process::id(), rand::rng().random::<u64>())
     }
 
     /// 尝试获取锁
